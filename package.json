@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@fastify/cors": "^11.1.0",
     "@prisma/client": "^6.16.1",
     "fastify": "^5.6.0",
     "ioredis": "^5.7.0",
