@@ -1,0 +1,17 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+datasource db {
+  provider = "postgresql" // o mysql/sqlite según tu stack
+  url      = env("DATABASE_URL")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  userId    String?  // Para links /ask/@user después
+  content   String
+  createdAt DateTime @default(now())
+  seen      Boolean  @default(false)
+}
