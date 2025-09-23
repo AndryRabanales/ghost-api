@@ -5,43 +5,103 @@ const { PrismaClient } = require('@prisma/client');
 const fastify = Fastify({ logger: true });
 
 fastify.register(cors, {
-  origin: '*', // o tu URL de producción para restringirlo
+  origin: '*', // en producción pon aquí tu dominio frontend
 });
 
 const prisma = new PrismaClient();
 
-// Crear una nueva ronda
+/* 
+  ======================
+  RONDAS
+  ======================
+*/
+
+// Crear una nueva ronda manualmente (por ejemplo cada día)
 fastify.post('/rounds', async (request, reply) => {
-  const { creatorId } = request.body;
-  const round = await prisma.round.create({
-    data: { creatorId } // status ACTIVE por defecto
-  });
-  reply.send(round);
+  try {
+    const { creatorId } = request.body; // quien la abre (tu usuario)
+    const round = await prisma.round.create({
+      data: { creatorId },
+    });
+    reply.code(201).send(round);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: 'Error creando ronda' });
+  }
 });
 
-// Obtener la ronda activa del creador
+// Obtener todas las rondas
+fastify.get('/rounds', async (request, reply) => {
+  const rounds = await prisma.round.findMany({
+    orderBy: { date: 'desc' },
+  });
+  reply.send(rounds);
+});
+
+// 🔹 Obtener la ronda actual del día (si no existe, crearla automáticamente)
 fastify.get('/rounds/current/:creatorId', async (request, reply) => {
-  const round = await prisma.round.findFirst({
-    where: { creatorId: request.params.creatorId, status: 'ACTIVE' },
-    orderBy: { date: 'desc' }
+  const { creatorId } = request.params;
+
+  // Calcular inicio del día actual
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  // Buscar ronda activa de hoy para ese creatorId
+  let round = await prisma.round.findFirst({
+    where: {
+      creatorId,
+      date: {
+        gte: startOfDay, // ronda creada hoy
+      },
+    },
+    orderBy: { date: 'desc' },
   });
+
+  // Si no existe, crearla automáticamente
+  if (!round) {
+    round = await prisma.round.create({
+      data: { creatorId },
+    });
+  }
+
   reply.send(round);
 });
 
-// Enviar predicción a una ronda (status queda PENDING por defecto)
+/* 
+  ======================
+  MENSAJES
+  ======================
+*/
+
+// Crear un mensaje dentro de una ronda
 fastify.post('/messages', async (request, reply) => {
-  const { content, userId, roundId } = request.body;
-  const message = await prisma.message.create({
-    data: { content, userId, roundId }
-  });
-  reply.code(201).send(message);
+  try {
+    const { content, userId, roundId } = request.body; // ahora necesitas pasar roundId
+    const message = await prisma.message.create({
+      data: { content, userId, roundId },
+    });
+    reply.code(201).send(message);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: 'Error creando mensaje' });
+  }
 });
 
-// Listar mensajes de una ronda concreta
+// Contar mensajes bloqueados (últimas 24h)
+fastify.get('/messages/count', async (request, reply) => {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const locked = await prisma.message.count({
+    where: { createdAt: { gt: cutoff } },
+  });
+  reply.send({ locked });
+});
+
+// Listar mensajes de una ronda
 fastify.get('/messages/:roundId', async (request, reply) => {
+  const { roundId } = request.params;
   const messages = await prisma.message.findMany({
-    where: { roundId: request.params.roundId },
-    orderBy: { createdAt: 'desc' }
+    where: { roundId },
+    orderBy: { createdAt: 'desc' },
   });
   reply.send(messages);
 });
@@ -56,13 +116,18 @@ fastify.patch('/messages/:id', async (request, reply) => {
     where: { id: request.params.id },
     data: {
       seen: true,
-      status
-    }
+      status,
+    },
   });
   reply.send(message);
 });
 
-// Arrancar el servidor
+/* 
+  ======================
+  ARRANQUE DEL SERVIDOR
+  ======================
+*/
+
 const start = async () => {
   try {
     const port = process.env.PORT || 3001;
