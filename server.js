@@ -65,4 +65,14 @@ const start = async () => {
   }
 };
 
+
+// NUEVO: Listar todos los mensajes
+fastify.get('/messages', async (request, reply) => {
+  const messages = await prisma.message.findMany({
+    orderBy: { createdAt: 'desc' }
+  });
+  reply.send(messages);
+});
+
+
 start();
