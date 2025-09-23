@@ -10,8 +10,15 @@ datasource db {
 
 model Message {
   id        String   @id @default(cuid())
-  userId    String?  // Para links /ask/@user después
+  userId    String?
   content   String
   createdAt DateTime @default(now())
   seen      Boolean  @default(false)
+  status    Status   @default(PENDING)
+}
+
+enum Status {
+  PENDING
+  FULFILLED
+  NOT_FULFILLED
 }
