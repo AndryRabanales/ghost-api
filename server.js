@@ -1,34 +1,29 @@
-// server.js
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const { PrismaClient } = require('@prisma/client');
 
 const fastify = Fastify({ logger: true });
 
-fastify.register(cors, {
-  origin: '*', // en producción pon aquí tu dominio frontend
-});
+fastify.register(cors, { origin: '*' });
 
-// 👇 Instancia correcta del cliente de Prisma
+// 👇 Cliente Prisma
 const prisma = new PrismaClient();
 
-/* 
-  ======================
-  RONDAS
-  ======================
-*/
+// (Opcional) log para ver los modelos disponibles en Render
+console.log('Modelos disponibles:', Object.keys(prisma));
 
-// Crear una nueva ronda manualmente
+/* ======================
+   RONDAS
+   ====================== */
+
+// Crear una nueva ronda
 fastify.post('/rounds', async (request, reply) => {
   try {
     const { creatorId } = request.body;
     if (!creatorId) {
       return reply.code(400).send({ error: 'creatorId es requerido' });
     }
-
-    const round = await prisma.round.create({
-      data: { creatorId },
-    });
+    const round = await prisma.round.create({ data: { creatorId } });
     reply.code(201).send(round);
   } catch (err) {
     fastify.log.error(err);
@@ -36,7 +31,7 @@ fastify.post('/rounds', async (request, reply) => {
   }
 });
 
-// Obtener todas las rondas ordenadas por fecha
+// Obtener todas las rondas
 fastify.get('/rounds', async (request, reply) => {
   try {
     const rounds = await prisma.round.findMany({
@@ -57,26 +52,19 @@ fastify.get('/rounds/current/:creatorId', async (request, reply) => {
       return reply.code(400).send({ error: 'creatorId es requerido' });
     }
 
-    // Inicio del día actual
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    // Buscar ronda activa de hoy
     let round = await prisma.round.findFirst({
       where: {
         creatorId,
-        date: {
-          gte: startOfDay,
-        },
+        date: { gte: startOfDay },
       },
       orderBy: { date: 'desc' },
     });
 
-    // Si no existe, crearla automáticamente
     if (!round) {
-      round = await prisma.round.create({
-        data: { creatorId },
-      });
+      round = await prisma.round.create({ data: { creatorId } });
     }
 
     reply.send(round);
@@ -86,11 +74,9 @@ fastify.get('/rounds/current/:creatorId', async (request, reply) => {
   }
 });
 
-/* 
-  ======================
-  MENSAJES
-  ======================
-*/
+/* ======================
+   MENSAJES
+   ====================== */
 
 // Crear un mensaje dentro de una ronda
 fastify.post('/messages', async (request, reply) => {
@@ -99,7 +85,6 @@ fastify.post('/messages', async (request, reply) => {
     if (!content || !roundId) {
       return reply.code(400).send({ error: 'content y roundId son requeridos' });
     }
-
     const message = await prisma.message.create({
       data: { content, userId, roundId },
     });
@@ -110,7 +95,7 @@ fastify.post('/messages', async (request, reply) => {
   }
 });
 
-// Contar mensajes creados en las últimas 24h
+// Contar mensajes creados en últimas 24h
 fastify.get('/messages/count', async (request, reply) => {
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -131,7 +116,6 @@ fastify.get('/messages/:roundId', async (request, reply) => {
     if (!roundId) {
       return reply.code(400).send({ error: 'roundId es requerido' });
     }
-
     const messages = await prisma.message.findMany({
       where: { roundId },
       orderBy: { createdAt: 'desc' },
@@ -150,13 +134,9 @@ fastify.patch('/messages/:id', async (request, reply) => {
     if (!['FULFILLED', 'NOT_FULFILLED'].includes(status)) {
       return reply.code(400).send({ error: 'Estado inválido' });
     }
-
     const message = await prisma.message.update({
       where: { id: request.params.id },
-      data: {
-        seen: true,
-        status,
-      },
+      data: { seen: true, status },
     });
     reply.send(message);
   } catch (err) {
@@ -165,11 +145,9 @@ fastify.patch('/messages/:id', async (request, reply) => {
   }
 });
 
-/* 
-  ======================
-  ARRANQUE DEL SERVIDOR
-  ======================
-*/
+/* ======================
+   ARRANQUE DEL SERVIDOR
+   ====================== */
 
 const start = async () => {
   try {

@@ -2,9 +2,8 @@ generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
-  provider = "postgresql" // o mysql/sqlite según tu stack
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -15,10 +14,27 @@ model Message {
   createdAt DateTime @default(now())
   seen      Boolean  @default(false)
   status    Status   @default(PENDING)
+  roundId   String   // id de la ronda a la que pertenece este mensaje
+
+  round     Round    @relation(fields: [roundId], references: [id])
+}
+
+model Round {
+  id        String       @id @default(cuid())
+  creatorId String
+  date      DateTime     @default(now())
+  status    RoundStatus  @default(ACTIVE)
+
+  messages  Message[]
 }
 
 enum Status {
   PENDING
   FULFILLED
   NOT_FULFILLED
+}
+
+enum RoundStatus {
+  ACTIVE
+  CLOSED
 }
