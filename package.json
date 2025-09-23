@@ -1,14 +1,11 @@
 {
   "name": "api",
   "version": "1.0.0",
-  "description": "",
   "main": "server.js",
   "scripts": {
+    "build": "npx prisma generate",
     "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@prisma/client": "^6.16.1",
