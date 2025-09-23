@@ -5,16 +5,16 @@ const { PrismaClient } = require('@prisma/client');
 const fastify = Fastify({ logger: true });
 
 fastify.register(cors, {
-  origin: '*', // o tu URL de producción para restringirlo
+  origin: '*', // o pon aquí tu URL de producción para restringirlo
 });
 
 const prisma = new PrismaClient();
 
-// Crear predicción (igual que antes)
+// Crear predicción (status queda PENDING por defecto)
 fastify.post('/messages', async (request, reply) => {
   const { content, userId } = request.body;
   const message = await prisma.message.create({
-    data: { content, userId } // status queda PENDING por defecto
+    data: { content, userId }
   });
   reply.code(201).send(message);
 });
@@ -28,11 +28,19 @@ fastify.get('/messages/count', async (request, reply) => {
   reply.send({ locked });
 });
 
-// NUEVO: Listar predicciones desbloqueadas (>24h)
-fastify.get('/messages', async (request, reply) => {
+// NUEVO: Listar sólo predicciones desbloqueadas (>24h)
+fastify.get('/messages/unlocked', async (request, reply) => {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const messages = await prisma.message.findMany({
     where: { createdAt: { lte: cutoff } },
+    orderBy: { createdAt: 'desc' }
+  });
+  reply.send(messages);
+});
+
+// NUEVO: Listar todos los mensajes
+fastify.get('/messages', async (request, reply) => {
+  const messages = await prisma.message.findMany({
     orderBy: { createdAt: 'desc' }
   });
   reply.send(messages);
@@ -47,13 +55,14 @@ fastify.patch('/messages/:id', async (request, reply) => {
   const message = await prisma.message.update({
     where: { id: request.params.id },
     data: {
-      seen: true,
-      status // 👈 usa la columna status que añadiste en schema.prisma
+      seen: true, // marca como visto al mismo tiempo
+      status
     }
   });
   reply.send(message);
 });
 
+// Iniciar servidor
 const start = async () => {
   try {
     const port = process.env.PORT || 3001;
@@ -64,15 +73,5 @@ const start = async () => {
     process.exit(1);
   }
 };
-
-
-// NUEVO: Listar todos los mensajes
-fastify.get('/messages', async (request, reply) => {
-  const messages = await prisma.message.findMany({
-    orderBy: { createdAt: 'desc' }
-  });
-  reply.send(messages);
-});
-
 
 start();
