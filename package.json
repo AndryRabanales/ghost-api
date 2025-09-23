@@ -4,7 +4,7 @@
   "main": "server.js",
   "scripts": {
     "build": "npx prisma generate",
-    "start": "node server.js"
+    "start": "npx prisma migrate deploy --schema=prisma/schema.prisma && node server.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
