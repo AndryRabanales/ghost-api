@@ -3,14 +3,9 @@ const cors = require('@fastify/cors');
 const { PrismaClient } = require('@prisma/client');
 
 const fastify = Fastify({ logger: true });
-
 fastify.register(cors, { origin: '*' });
 
-// 👇 Cliente Prisma
 const prisma = new PrismaClient();
-
-// (Opcional) log para ver los modelos disponibles en Render
-console.log('Modelos disponibles:', Object.keys(prisma));
 
 /* ======================
    RONDAS
@@ -31,19 +26,6 @@ fastify.post('/rounds', async (request, reply) => {
   }
 });
 
-// Obtener todas las rondas
-fastify.get('/rounds', async (request, reply) => {
-  try {
-    const rounds = await prisma.round.findMany({
-      orderBy: { date: 'desc' },
-    });
-    reply.send(rounds);
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error obteniendo rondas' });
-  }
-});
-
 // Obtener la ronda actual del día (si no existe, crearla automáticamente)
 fastify.get('/rounds/current/:creatorId', async (request, reply) => {
   try {
@@ -56,10 +38,7 @@ fastify.get('/rounds/current/:creatorId', async (request, reply) => {
     startOfDay.setHours(0, 0, 0, 0);
 
     let round = await prisma.round.findFirst({
-      where: {
-        creatorId,
-        date: { gte: startOfDay },
-      },
+      where: { creatorId, date: { gte: startOfDay } },
       orderBy: { date: 'desc' },
     });
 
@@ -95,35 +74,26 @@ fastify.post('/messages', async (request, reply) => {
   }
 });
 
-// Contar mensajes creados en últimas 24h
-fastify.get('/messages/count', async (request, reply) => {
+// Listar mensajes de una ronda (visibles + bloqueados)
+fastify.get('/messages/:roundId', async (req, reply) => {
   try {
+    const { roundId } = req.params;
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const locked = await prisma.message.count({
-      where: { createdAt: { gt: cutoff } },
-    });
-    reply.send({ locked });
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error contando mensajes' });
-  }
-});
 
-// Listar mensajes de una ronda
-fastify.get('/messages/:roundId', async (request, reply) => {
-  try {
-    const { roundId } = request.params;
-    if (!roundId) {
-      return reply.code(400).send({ error: 'roundId es requerido' });
-    }
-    const messages = await prisma.message.findMany({
-      where: { roundId },
+    const visible = await prisma.message.findMany({
+      where: { roundId, createdAt: { lte: cutoff } },
       orderBy: { createdAt: 'desc' },
     });
-    reply.send(messages);
+
+    const locked = await prisma.message.findMany({
+      where: { roundId, createdAt: { gt: cutoff } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    reply.send({ visible, locked });
   } catch (err) {
     fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error listando mensajes' });
+    reply.code(500).send({ error: err.message || 'Error obteniendo mensajes' });
   }
 });
 
