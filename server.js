@@ -3,7 +3,12 @@ const cors = require('@fastify/cors');
 const { PrismaClient } = require('@prisma/client');
 
 const fastify = Fastify({ logger: true });
-fastify.register(cors, { origin: '*' });
+
+// 👇 aquí habilitamos PATCH también
+fastify.register(cors, {
+  origin: '*',
+  methods: ['GET', 'POST', 'PATCH', 'OPTIONS']
+});
 
 const prisma = new PrismaClient();
 
