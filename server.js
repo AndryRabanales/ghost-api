@@ -81,4 +81,19 @@ const start = async () => {
   }
 };
 
+fastify.get('/__diag', async (req, reply) => {
+  try {
+    const cols = await prisma.$queryRaw`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'Message' 
+      ORDER BY 1
+    `;
+    const clientVersion = require('@prisma/client/package.json').version;
+    reply.send({ prismaClientVersion: clientVersion, messageColumns: cols });
+  } catch (e) {
+    reply.code(500).send({ error: e.message });
+  }
+});
+
 start();
