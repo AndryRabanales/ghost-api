@@ -7,66 +7,26 @@ fastify.register(cors, { origin: '*' });
 
 const prisma = new PrismaClient();
 
-/* ======================
-   RONDAS
-   ====================== */
+// ======================
+// MENSAJES
+// ======================
 
-// Crear una nueva ronda
-fastify.post('/rounds', async (request, reply) => {
-  try {
-    const { creatorId } = request.body;
-    if (!creatorId) {
-      return reply.code(400).send({ error: 'creatorId es requerido' });
-    }
-    const round = await prisma.round.create({ data: { creatorId } });
-    reply.code(201).send(round);
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error creando ronda' });
-  }
-});
-
-// Obtener la ronda actual del día (si no existe, crearla automáticamente)
-fastify.get('/rounds/current/:creatorId', async (request, reply) => {
-  try {
-    const { creatorId } = request.params;
-    if (!creatorId) {
-      return reply.code(400).send({ error: 'creatorId es requerido' });
-    }
-
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    let round = await prisma.round.findFirst({
-      where: { creatorId, date: { gte: startOfDay } },
-      orderBy: { date: 'desc' },
-    });
-
-    if (!round) {
-      round = await prisma.round.create({ data: { creatorId } });
-    }
-
-    reply.send(round);
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error obteniendo ronda actual' });
-  }
-});
-
-/* ======================
-   MENSAJES
-   ====================== */
-
-// Crear un mensaje dentro de una ronda (con alias)
+// Crear un nuevo mensaje (alias opcional, sin roundId)
 fastify.post('/messages', async (request, reply) => {
   try {
-    const { content, userId, roundId, alias } = request.body;
-    if (!content || !roundId) {
-      return reply.code(400).send({ error: 'content y roundId son requeridos' });
+    const { content, userId, alias } = request.body;
+    if (!content) {
+      return reply.code(400).send({ error: 'El campo content es requerido' });
     }
+
     const message = await prisma.message.create({
-      data: { content, userId, roundId, alias }, // 👈 añadimos alias
+      data: {
+        content,
+        userId,
+        alias, // 👈 guardamos alias
+      },
     });
+
     reply.code(201).send(message);
   } catch (err) {
     fastify.log.error(err);
@@ -74,17 +34,12 @@ fastify.post('/messages', async (request, reply) => {
   }
 });
 
-
-// Listar todos los mensajes de una ronda (sin bloqueo)
-fastify.get('/messages/:roundId', async (req, reply) => {
+// Listar todos los mensajes
+fastify.get('/messages', async (req, reply) => {
   try {
-    const { roundId } = req.params;
-
     const messages = await prisma.message.findMany({
-      where: { roundId },
       orderBy: { createdAt: 'desc' },
     });
-
     reply.send(messages);
   } catch (err) {
     fastify.log.error(err);
@@ -92,33 +47,34 @@ fastify.get('/messages/:roundId', async (req, reply) => {
   }
 });
 
-// Marcar predicción como cumplida o no cumplida
-fastify.patch('/messages/:id', async (request, reply) => {
+// Actualizar estado de un mensaje
+fastify.patch('/messages/:id', async (req, reply) => {
   try {
-    const { status } = request.body;
-    if (!['FULFILLED', 'NOT_FULFILLED'].includes(status)) {
-      return reply.code(400).send({ error: 'Estado inválido' });
-    }
-    const message = await prisma.message.update({
-      where: { id: request.params.id },
-      data: { seen: true, status },
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const updated = await prisma.message.update({
+      where: { id },
+      data: { status },
     });
-    reply.send(message);
+
+    reply.send(updated);
   } catch (err) {
     fastify.log.error(err);
     reply.code(500).send({ error: err.message || 'Error actualizando mensaje' });
   }
 });
 
-/* ======================
-   ARRANQUE DEL SERVIDOR
-   ====================== */
+// Ruta raíz opcional
+fastify.get('/', async (req, reply) => {
+  reply.send({ status: 'API funcionando' });
+});
 
+// Iniciar servidor
 const start = async () => {
   try {
-    const port = process.env.PORT || 3001;
-    await fastify.listen({ port, host: '0.0.0.0' });
-    console.log(`Servidor en puerto ${port}`);
+    await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
+    console.log(`Servidor en puerto ${process.env.PORT || 3001}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
