@@ -74,23 +74,17 @@ fastify.post('/messages', async (request, reply) => {
   }
 });
 
-// Listar mensajes de una ronda (visibles + bloqueados)
+// Listar todos los mensajes de una ronda (sin bloqueo)
 fastify.get('/messages/:roundId', async (req, reply) => {
   try {
     const { roundId } = req.params;
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const visible = await prisma.message.findMany({
-      where: { roundId, createdAt: { lte: cutoff } },
+    const messages = await prisma.message.findMany({
+      where: { roundId },
       orderBy: { createdAt: 'desc' },
     });
 
-    const locked = await prisma.message.findMany({
-      where: { roundId, createdAt: { gt: cutoff } },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    reply.send({ visible, locked });
+    reply.send(messages);
   } catch (err) {
     fastify.log.error(err);
     reply.code(500).send({ error: err.message || 'Error obteniendo mensajes' });
