@@ -11,26 +11,14 @@ model Message {
   id        String   @id @default(cuid())
   userId    String?
   content   String
+  alias     String?  // 👈 alias opcional
   createdAt DateTime @default(now())
   seen      Boolean  @default(false)
   status    Status   @default(PENDING)
-  roundId   String?
-}
-
-model Round {
-  id        String      @id @default(cuid())
-  creatorId String
-  date      DateTime    @default(now())
-  status    RoundStatus @default(ACTIVE)
 }
 
 enum Status {
   PENDING
   FULFILLED
   NOT_FULFILLED
-}
-
-enum RoundStatus {
-  ACTIVE
-  CLOSED
 }
