@@ -57,15 +57,15 @@ fastify.get('/rounds/current/:creatorId', async (request, reply) => {
    MENSAJES
    ====================== */
 
-// Crear un mensaje dentro de una ronda
+// Crear un mensaje dentro de una ronda (con alias)
 fastify.post('/messages', async (request, reply) => {
   try {
-    const { content, userId, roundId } = request.body;
+    const { content, userId, roundId, alias } = request.body;
     if (!content || !roundId) {
       return reply.code(400).send({ error: 'content y roundId son requeridos' });
     }
     const message = await prisma.message.create({
-      data: { content, userId, roundId },
+      data: { content, userId, roundId, alias }, // 👈 añadimos alias
     });
     reply.code(201).send(message);
   } catch (err) {
@@ -73,6 +73,7 @@ fastify.post('/messages', async (request, reply) => {
     reply.code(500).send({ error: err.message || 'Error creando mensaje' });
   }
 });
+
 
 // Listar todos los mensajes de una ronda (sin bloqueo)
 fastify.get('/messages/:roundId', async (req, reply) => {
