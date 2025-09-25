@@ -1,1 +1,1 @@
--- This is an empty migration.
+ALTER TABLE "Message" ADD COLUMN "alias" TEXT;
