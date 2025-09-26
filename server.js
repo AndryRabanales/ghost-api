@@ -183,6 +183,26 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
 });
 
 /* ======================
+   MARCAR MENSAJE COMO LEÍDO
+   ====================== */
+
+// nuevo endpoint PATCH para marcar mensajes como leídos
+fastify.patch('/chat-messages/:id', async (req, reply) => {
+  try {
+    const { id } = req.params;
+    const { seen } = req.body;
+    const updated = await prisma.chatMessage.update({
+      where: { id },
+      data: { seen },
+    });
+    reply.send(updated);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error actualizando mensaje' });
+  }
+});
+
+/* ======================
    UTILIDADES
    ====================== */
 fastify.get('/', async () => ({ status: 'API ok' }));
