@@ -7,15 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Creator {
+  id         String    @id @default(cuid())   // dashboardId (secreto)
+  publicId   String    @unique                // link público para anónimos
+  name       String?                          // nombre opcional del creador
+  createdAt  DateTime  @default(now())
+  messages   Message[]
+}
+
 model Message {
   id        String   @id @default(cuid())
-  creatorId String?
-  userId    String?
+  creatorId String?                          // 👈 opcional mientras haya mensajes viejos
   content   String
   alias     String?
   createdAt DateTime @default(now())
-  seen      Boolean  @default(false)
   status    Status   @default(PENDING)
+
+  creator   Creator?  @relation(fields: [creatorId], references: [id]) // 👈 relación opcional
 }
 
 enum Status {

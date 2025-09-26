@@ -1,35 +1,71 @@
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const { PrismaClient } = require('@prisma/client');
+const { randomUUID } = require('crypto');
 
 const fastify = Fastify({ logger: true });
 
-// 🔓 CORS: GET, POST, PATCH, OPTIONS
+// CORS: permitir GET, POST, PATCH desde cualquier origen
 fastify.register(cors, {
   origin: '*',
-  methods: ['GET', 'POST', 'PATCH', 'OPTIONS']
+  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
 });
 
 const prisma = new PrismaClient();
 
 // ======================
-// MENSAJES
+// CREAR NUEVO CREATOR (DASHBOARD)
 // ======================
-
-// Crear un nuevo mensaje (alias opcional)
-fastify.post('/messages', async (request, reply) => {
+fastify.post('/creators', async (req, reply) => {
   try {
-    const { content, userId, alias, creatorId } = request.body;
-    if (!content || !creatorId) {
-      return reply.code(400).send({ error: 'content y creatorId son requeridos' });
+    const { name } = req.body;
+    const publicId = randomUUID();
+
+    const creator = await prisma.creator.create({
+      data: {
+        name,
+        publicId,
+      },
+    });
+
+    // Links que se devuelven
+    const frontendBase = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const dashboardUrl = `${frontendBase}/dashboard/${creator.id}`;
+    const publicUrl = `${frontendBase}/u/${creator.publicId}`;
+
+    reply.code(201).send({
+      dashboardUrl,
+      publicUrl,
+      creatorId: creator.id,
+      publicId: creator.publicId,
+    });
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error creando creator' });
+  }
+});
+
+// ======================
+// CREAR MENSAJE (desde link público)
+// ======================
+fastify.post('/messages', async (req, reply) => {
+  try {
+    const { publicId, content, alias } = req.body;
+    if (!publicId || !content) {
+      return reply.code(400).send({ error: 'publicId y content son requeridos' });
+    }
+
+    // buscamos al Creator por publicId
+    const creator = await prisma.creator.findUnique({ where: { publicId } });
+    if (!creator) {
+      return reply.code(404).send({ error: 'No existe creator con ese publicId' });
     }
 
     const message = await prisma.message.create({
       data: {
         content,
-        userId,
         alias,
-        creatorId, // guardamos el dueño del dashboard
+        creatorId: creator.id,
       },
     });
 
@@ -40,14 +76,18 @@ fastify.post('/messages', async (request, reply) => {
   }
 });
 
-// Listar mensajes (opcionalmente filtrando por creatorId)
+// ======================
+// LISTAR MENSAJES FILTRANDO POR DASHBOARDID (creatorId)
+// ======================
 fastify.get('/messages', async (req, reply) => {
   try {
-    const { creatorId } = req.query;
-    const where = creatorId ? { creatorId } : {};
+    const { dashboardId } = req.query;
+    if (!dashboardId) {
+      return reply.code(400).send({ error: 'dashboardId es requerido' });
+    }
 
     const messages = await prisma.message.findMany({
-      where,
+      where: { creatorId: dashboardId },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -58,7 +98,9 @@ fastify.get('/messages', async (req, reply) => {
   }
 });
 
-// Actualizar estado de un mensaje (desbloquear)
+// ======================
+// ACTUALIZAR ESTADO DE MENSAJE (desbloquear)
+// ======================
 fastify.patch('/messages/:id', async (req, reply) => {
   try {
     const { id } = req.params;
@@ -76,12 +118,16 @@ fastify.patch('/messages/:id', async (req, reply) => {
   }
 });
 
-// Ruta raíz opcional
+// ======================
+// RUTA RAÍZ
+// ======================
 fastify.get('/', async (req, reply) => {
   reply.send({ status: 'API funcionando' });
 });
 
-// Diagnóstico: columnas de Message
+// ======================
+// DIAGNÓSTICO OPCIONAL
+// ======================
 fastify.get('/__diag', async (req, reply) => {
   try {
     const cols = await prisma.$queryRaw`
@@ -97,7 +143,9 @@ fastify.get('/__diag', async (req, reply) => {
   }
 });
 
-// Iniciar servidor
+// ======================
+// INICIAR SERVIDOR
+// ======================
 const start = async () => {
   try {
     await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
