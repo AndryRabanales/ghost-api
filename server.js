@@ -106,7 +106,7 @@ fastify.patch('/messages/:id', async (req, reply) => {
       where: { id },
       data: {
         ...(status && { status }),
-        ...(seen !== undefined && { seen }),
+        ...(seen !== undefined && { seen }), // aceptar true/false
       },
     });
 
@@ -116,6 +116,7 @@ fastify.patch('/messages/:id', async (req, reply) => {
     reply.code(500).send({ error: err.message || 'Error actualizando mensaje' });
   }
 });
+
 
 fastify.get('/', async (req, reply) => {
   reply.send({ status: 'API funcionando' });
