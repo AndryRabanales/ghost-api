@@ -4,7 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 
 const fastify = Fastify({ logger: true });
 
-// 👇 aquí habilitamos PATCH también
+// 🔓 CORS: GET, POST, PATCH, OPTIONS
 fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS']
@@ -16,19 +16,20 @@ const prisma = new PrismaClient();
 // MENSAJES
 // ======================
 
-// Crear un nuevo mensaje (alias opcional, sin roundId)
+// Crear un nuevo mensaje (alias opcional)
 fastify.post('/messages', async (request, reply) => {
   try {
-    const { content, userId, alias } = request.body;
-    if (!content) {
-      return reply.code(400).send({ error: 'El campo content es requerido' });
+    const { content, userId, alias, creatorId } = request.body;
+    if (!content || !creatorId) {
+      return reply.code(400).send({ error: 'content y creatorId son requeridos' });
     }
 
     const message = await prisma.message.create({
       data: {
         content,
         userId,
-        alias, // 👈 guardamos alias
+        alias,
+        creatorId, // guardamos el dueño del dashboard
       },
     });
 
@@ -39,12 +40,17 @@ fastify.post('/messages', async (request, reply) => {
   }
 });
 
-// Listar todos los mensajes
+// Listar mensajes (opcionalmente filtrando por creatorId)
 fastify.get('/messages', async (req, reply) => {
   try {
+    const { creatorId } = req.query;
+    const where = creatorId ? { creatorId } : {};
+
     const messages = await prisma.message.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
     });
+
     reply.send(messages);
   } catch (err) {
     fastify.log.error(err);
@@ -52,7 +58,7 @@ fastify.get('/messages', async (req, reply) => {
   }
 });
 
-// Actualizar estado de un mensaje
+// Actualizar estado de un mensaje (desbloquear)
 fastify.patch('/messages/:id', async (req, reply) => {
   try {
     const { id } = req.params;
@@ -75,17 +81,7 @@ fastify.get('/', async (req, reply) => {
   reply.send({ status: 'API funcionando' });
 });
 
-// Iniciar servidor
-const start = async () => {
-  try {
-    await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
-    console.log(`Servidor en puerto ${process.env.PORT || 3001}`);
-  } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
-  }
-};
-
+// Diagnóstico: columnas de Message
 fastify.get('/__diag', async (req, reply) => {
   try {
     const cols = await prisma.$queryRaw`
@@ -100,5 +96,16 @@ fastify.get('/__diag', async (req, reply) => {
     reply.code(500).send({ error: e.message });
   }
 });
+
+// Iniciar servidor
+const start = async () => {
+  try {
+    await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
+    console.log(`Servidor en puerto ${process.env.PORT || 3001}`);
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
+};
 
 start();

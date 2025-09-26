@@ -9,9 +9,10 @@ datasource db {
 
 model Message {
   id        String   @id @default(cuid())
+  creatorId String?
   userId    String?
   content   String
-  alias     String?  // 👈 alias opcional
+  alias     String?
   createdAt DateTime @default(now())
   seen      Boolean  @default(false)
   status    Status   @default(PENDING)
