@@ -98,7 +98,7 @@ fastify.get('/chats/:anonToken/:chatId', async (req, reply) => {
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
     if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
-    reply.send(chat);
+    reply.send({ messages: chat.messages });
   } catch (err) {
     fastify.log.error(err);
     reply.code(500).send({ error: err.message || 'Error obteniendo mensajes del chat' });
@@ -148,7 +148,7 @@ fastify.get('/dashboard/:creatorId/chats', async (req, reply) => {
   }
 });
 
-// Ver un chat (CREADOR) por chatId
+// Ver un chat completo (CREADOR) por chatId
 fastify.get('/dashboard/chats/:chatId', async (req, reply) => {
   try {
     const { chatId } = req.params;
@@ -157,7 +157,7 @@ fastify.get('/dashboard/chats/:chatId', async (req, reply) => {
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
     if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
-    reply.send(chat);
+    reply.send({ messages: chat.messages });
   } catch (err) {
     fastify.log.error(err);
     reply.code(500).send({ error: err.message || 'Error obteniendo chat del dashboard' });
