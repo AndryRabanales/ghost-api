@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const fastify = Fastify({ logger: true });
 
-// Habilitar CORS para todos los métodos necesarios
+// habilitar CORS con PATCH incluido
 fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
@@ -16,13 +16,15 @@ const prisma = new PrismaClient();
 /* ======================
    CREATOR (DASHBOARD)
    ====================== */
+
+// Crear un nuevo dashboard/creator
 fastify.post('/creators', async (req, reply) => {
   try {
     const { name } = req.body;
+
     const dashboardId = uuidv4();
     const publicId = uuidv4();
 
-    // guardar en la BD
     await prisma.creator.create({
       data: {
         id: dashboardId,
@@ -54,7 +56,6 @@ fastify.post('/messages', async (req, reply) => {
       return reply.code(400).send({ error: 'Faltan campos obligatorios' });
     }
 
-    // buscar creator por publicId
     const creator = await prisma.creator.findUnique({
       where: { publicId },
     });
@@ -67,6 +68,7 @@ fastify.post('/messages', async (req, reply) => {
         content,
         alias,
         creatorId: creator.id,
+        seen: false, // por defecto bloqueado
       },
     });
 
@@ -97,19 +99,18 @@ fastify.get('/messages', async (req, reply) => {
   }
 });
 
-// Actualizar estado o visto de un mensaje
+// Actualizar estado de un mensaje (seen o status)
 fastify.patch('/messages/:id', async (req, reply) => {
   try {
     const { id } = req.params;
     const { status, seen } = req.body;
 
-    const dataToUpdate = {};
-    if (status !== undefined) dataToUpdate.status = status;
-    if (seen !== undefined) dataToUpdate.seen = seen;
-
     const updated = await prisma.message.update({
       where: { id },
-      data: dataToUpdate,
+      data: {
+        ...(status && { status }),
+        ...(typeof seen === 'boolean' && { seen }),
+      },
     });
 
     reply.send(updated);
@@ -119,16 +120,12 @@ fastify.patch('/messages/:id', async (req, reply) => {
   }
 });
 
-/* ======================
-   Otros
-   ====================== */
-
 // Ruta raíz opcional
 fastify.get('/', async (req, reply) => {
   reply.send({ status: 'API funcionando' });
 });
 
-// Diagnóstico (opcional)
+// Diagnóstico opcional
 fastify.get('/__diag', async (req, reply) => {
   try {
     const cols = await prisma.$queryRaw`
