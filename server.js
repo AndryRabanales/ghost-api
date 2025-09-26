@@ -5,7 +5,6 @@ const { v4: uuidv4 } = require('uuid');
 
 const fastify = Fastify({ logger: true });
 
-// habilitar CORS con métodos PATCH incluidos
 fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
@@ -13,11 +12,7 @@ fastify.register(cors, {
 
 const prisma = new PrismaClient();
 
-// ======================
-// CREATOR (DASHBOARD)
-// ======================
-
-// Crear un nuevo dashboard/creator
+/* CREATOR (DASHBOARD) */
 fastify.post('/creators', async (req, reply) => {
   try {
     const { name } = req.body;
@@ -25,7 +20,6 @@ fastify.post('/creators', async (req, reply) => {
     const dashboardId = uuidv4();
     const publicId = uuidv4();
 
-    // guardar en la BD
     await prisma.creator.create({
       data: {
         id: dashboardId,
@@ -45,11 +39,7 @@ fastify.post('/creators', async (req, reply) => {
   }
 });
 
-// ======================
-// MENSAJES
-// ======================
-
-// Crear un nuevo mensaje para un creator usando su publicId
+/* MENSAJES */
 fastify.post('/messages', async (req, reply) => {
   try {
     const { content, alias, publicId } = req.body;
@@ -57,7 +47,6 @@ fastify.post('/messages', async (req, reply) => {
       return reply.code(400).send({ error: 'Faltan campos obligatorios' });
     }
 
-    // buscar creator por publicId
     const creator = await prisma.creator.findUnique({
       where: { publicId },
     });
@@ -80,7 +69,6 @@ fastify.post('/messages', async (req, reply) => {
   }
 });
 
-// Listar mensajes de un dashboard (por dashboardId)
 fastify.get('/messages', async (req, reply) => {
   try {
     const { dashboardId } = req.query;
@@ -100,7 +88,6 @@ fastify.get('/messages', async (req, reply) => {
   }
 });
 
-// Actualizar estado de un mensaje
 fastify.patch('/messages/:id', async (req, reply) => {
   try {
     const { id } = req.params;
@@ -118,28 +105,10 @@ fastify.patch('/messages/:id', async (req, reply) => {
   }
 });
 
-// Ruta raíz opcional
 fastify.get('/', async (req, reply) => {
   reply.send({ status: 'API funcionando' });
 });
 
-// Diagnóstico (opcional)
-fastify.get('/__diag', async (req, reply) => {
-  try {
-    const cols = await prisma.$queryRaw`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'Message' 
-      ORDER BY 1
-    `;
-    const clientVersion = require('@prisma/client/package.json').version;
-    reply.send({ prismaClientVersion: clientVersion, messageColumns: cols });
-  } catch (e) {
-    reply.code(500).send({ error: e.message });
-  }
-});
-
-// Iniciar servidor
 const start = async () => {
   try {
     await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
