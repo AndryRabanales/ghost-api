@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const fastify = Fastify({ logger: true });
 
-// CORS con PATCH incluido
+// Habilitar CORS para todos los métodos necesarios
 fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
@@ -13,16 +13,16 @@ fastify.register(cors, {
 
 const prisma = new PrismaClient();
 
-// ======================
-// CREATOR (DASHBOARD)
-// ======================
+/* ======================
+   CREATOR (DASHBOARD)
+   ====================== */
 fastify.post('/creators', async (req, reply) => {
   try {
     const { name } = req.body;
-
     const dashboardId = uuidv4();
     const publicId = uuidv4();
 
+    // guardar en la BD
     await prisma.creator.create({
       data: {
         id: dashboardId,
@@ -42,9 +42,9 @@ fastify.post('/creators', async (req, reply) => {
   }
 });
 
-// ======================
-// MENSAJES
-// ======================
+/* ======================
+   MENSAJES
+   ====================== */
 
 // Crear un nuevo mensaje para un creator usando su publicId
 fastify.post('/messages', async (req, reply) => {
@@ -54,6 +54,7 @@ fastify.post('/messages', async (req, reply) => {
       return reply.code(400).send({ error: 'Faltan campos obligatorios' });
     }
 
+    // buscar creator por publicId
     const creator = await prisma.creator.findUnique({
       where: { publicId },
     });
@@ -96,18 +97,19 @@ fastify.get('/messages', async (req, reply) => {
   }
 });
 
-// Actualizar estado de un mensaje (seen o status)
+// Actualizar estado o visto de un mensaje
 fastify.patch('/messages/:id', async (req, reply) => {
   try {
     const { id } = req.params;
     const { status, seen } = req.body;
 
+    const dataToUpdate = {};
+    if (status !== undefined) dataToUpdate.status = status;
+    if (seen !== undefined) dataToUpdate.seen = seen;
+
     const updated = await prisma.message.update({
       where: { id },
-      data: {
-        ...(status && { status }),
-        ...(seen !== undefined && { seen }), // aceptar true/false
-      },
+      data: dataToUpdate,
     });
 
     reply.send(updated);
@@ -117,11 +119,32 @@ fastify.patch('/messages/:id', async (req, reply) => {
   }
 });
 
+/* ======================
+   Otros
+   ====================== */
 
+// Ruta raíz opcional
 fastify.get('/', async (req, reply) => {
   reply.send({ status: 'API funcionando' });
 });
 
+// Diagnóstico (opcional)
+fastify.get('/__diag', async (req, reply) => {
+  try {
+    const cols = await prisma.$queryRaw`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'Message' 
+      ORDER BY 1
+    `;
+    const clientVersion = require('@prisma/client/package.json').version;
+    reply.send({ prismaClientVersion: clientVersion, messageColumns: cols });
+  } catch (e) {
+    reply.code(500).send({ error: e.message });
+  }
+});
+
+// Iniciar servidor
 const start = async () => {
   try {
     await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
@@ -131,4 +154,5 @@ const start = async () => {
     process.exit(1);
   }
 };
+
 start();
