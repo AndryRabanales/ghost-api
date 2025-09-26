@@ -1,34 +1,69 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
+// Usa tu proveedor actual (PostgreSQL en Render)
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+generator client {
+  provider = "prisma-client-js"
+}
+
+/* ======================
+   CREATOR (DASHBOARD)
+   ====================== */
 model Creator {
-  id         String    @id @default(cuid())   // dashboardId (secreto)
-  publicId   String    @unique                // link público para anónimos
-  name       String?                          // nombre opcional del creador
-  createdAt  DateTime  @default(now())
-  messages   Message[]
+  id        String    @id           // dashboardId (uuid)
+  publicId  String    @unique
+  name      String?
+  messages  Message[]
+  chats     Chat[]
 }
 
+/* ======================
+   MENSAJES (NGL estilo)
+   ====================== */
 model Message {
-  id        String   @id @default(cuid())
-  creatorId String?                          // opcional para mensajes viejos
-  content   String
-  alias     String?
-  createdAt DateTime @default(now())
-  status    Status   @default(PENDING)
-  seen      Boolean  @default(false)          // 👈 nuevo campo para “bloqueado/desbloqueado”
+  id          String     @id @default(uuid())
+  creatorId   String
+  content     String
+  alias       String?
+  seen        Boolean    @default(false)
+  createdAt   DateTime   @default(now())
 
-  creator   Creator?  @relation(fields: [creatorId], references: [id]) // relación opcional
+  replyToken  String?     @unique     // link para anónimo
+  responses   Response[]
+
+  creator     Creator    @relation(fields: [creatorId], references: [id])
 }
 
-enum Status {
-  PENDING
-  FULFILLED
-  NOT_FULFILLED
+model Response {
+  id        String   @id @default(uuid())
+  messageId String
+  content   String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id])
+}
+
+/* ======================
+   CHATS BIDIRECCIONALES
+   ====================== */
+model Chat {
+  id         String        @id @default(uuid())
+  creatorId  String
+  anonToken  String        @unique      // identifica al anónimo en este chat
+  createdAt  DateTime      @default(now())
+
+  creator    Creator       @relation(fields: [creatorId], references: [id])
+  messages   ChatMessage[]
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  chatId    String
+  from      String   // 'anon' o 'creator'
+  content   String
+  createdAt DateTime @default(now())
+
+  chat      Chat     @relation(fields: [chatId], references: [id])
 }

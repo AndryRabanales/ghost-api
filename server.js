@@ -5,7 +5,6 @@ const { v4: uuidv4 } = require('uuid');
 
 const fastify = Fastify({ logger: true });
 
-// habilitar CORS con PATCH incluido
 fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
@@ -16,8 +15,6 @@ const prisma = new PrismaClient();
 /* ======================
    CREATOR (DASHBOARD)
    ====================== */
-
-// Crear un nuevo dashboard/creator
 fastify.post('/creators', async (req, reply) => {
   try {
     const { name } = req.body;
@@ -26,18 +23,14 @@ fastify.post('/creators', async (req, reply) => {
     const publicId = uuidv4();
 
     await prisma.creator.create({
-      data: {
-        id: dashboardId,
-        publicId,
-        name,
-      },
+      data: { id: dashboardId, publicId, name },
     });
 
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const dashboardUrl = `${baseUrl}/dashboard/${dashboardId}`;
     const publicUrl = `${baseUrl}/u/${publicId}`;
 
-    reply.code(201).send({ dashboardUrl, publicUrl });
+    reply.code(201).send({ dashboardUrl, publicUrl, dashboardId, publicId });
   } catch (err) {
     fastify.log.error(err);
     reply.code(500).send({ error: err.message || 'Error creando dashboard' });
@@ -45,103 +38,155 @@ fastify.post('/creators', async (req, reply) => {
 });
 
 /* ======================
-   MENSAJES
+   CHATS BIDIRECCIONALES
    ====================== */
 
-// Crear un nuevo mensaje para un creator usando su publicId
-fastify.post('/messages', async (req, reply) => {
+// Crear chat + primer mensaje del ANÓNIMO
+fastify.post('/chats', async (req, reply) => {
   try {
-    const { content, alias, publicId } = req.body;
+    const { publicId, content, alias } = req.body;
     if (!content || !publicId) {
-      return reply.code(400).send({ error: 'Faltan campos obligatorios' });
+      return reply.code(400).send({ error: 'Faltan campos obligatorios (publicId, content)' });
     }
 
-    const creator = await prisma.creator.findUnique({
-      where: { publicId },
-    });
-    if (!creator) {
-      return reply.code(404).send({ error: 'No se encontró creator' });
-    }
+    const creator = await prisma.creator.findUnique({ where: { publicId } });
+    if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
 
-    const message = await prisma.message.create({
-      data: {
-        content,
-        alias,
-        creatorId: creator.id,
-        seen: false, // por defecto bloqueado
-      },
+    const anonToken = uuidv4();
+    const chat = await prisma.chat.create({
+      data: { creatorId: creator.id, anonToken },
     });
 
-    reply.code(201).send(message);
+    await prisma.chatMessage.create({
+      data: { chatId: chat.id, from: 'anon', content },
+    });
+
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const chatUrl = `${baseUrl}/chats/${anonToken}/${chat.id}`;
+
+    reply.code(201).send({ chatId: chat.id, anonToken, chatUrl });
   } catch (err) {
     fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error creando mensaje' });
+    reply.code(500).send({ error: err.message || 'Error creando chat' });
   }
 });
 
-// Listar mensajes de un dashboard (por dashboardId)
-fastify.get('/messages', async (req, reply) => {
+// Listar resumen de un chat por anonToken (token ÚNICO de ese chat)
+fastify.get('/chats/:anonToken', async (req, reply) => {
   try {
-    const { dashboardId } = req.query;
-    if (!dashboardId) {
-      return reply.code(400).send({ error: 'Falta dashboardId en query' });
-    }
+    const { anonToken } = req.params;
+    const chat = await prisma.chat.findUnique({
+      where: { anonToken },
+      include: {
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
+    reply.send(chat);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error obteniendo chat' });
+  }
+});
 
-    const messages = await prisma.message.findMany({
-      where: { creatorId: dashboardId },
+// Obtener mensajes de un chat (ANÓNIMO) — requiere anonToken + chatId
+fastify.get('/chats/:anonToken/:chatId', async (req, reply) => {
+  try {
+    const { anonToken, chatId } = req.params;
+    const chat = await prisma.chat.findFirst({
+      where: { id: chatId, anonToken },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
+    reply.send(chat);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error obteniendo mensajes del chat' });
+  }
+});
+
+// Enviar mensaje (ANÓNIMO) en un chat
+fastify.post('/chats/:anonToken/:chatId/messages', async (req, reply) => {
+  try {
+    const { anonToken, chatId } = req.params;
+    const { content } = req.body;
+    if (!content) return reply.code(400).send({ error: 'Falta content' });
+
+    const chat = await prisma.chat.findFirst({ where: { id: chatId, anonToken } });
+    if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
+
+    const msg = await prisma.chatMessage.create({
+      data: { chatId: chat.id, from: 'anon', content },
+    });
+
+    reply.code(201).send(msg);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error enviando mensaje' });
+  }
+});
+
+/* ======================
+   DASHBOARD (CREADOR)
+   ====================== */
+
+// Listar chats por creatorId (dashboard)
+fastify.get('/dashboard/:creatorId/chats', async (req, reply) => {
+  try {
+    const { creatorId } = req.params;
+    const chats = await prisma.chat.findMany({
+      where: { creatorId },
       orderBy: { createdAt: 'desc' },
-    });
-
-    reply.send(messages);
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error obteniendo mensajes' });
-  }
-});
-
-// Actualizar estado de un mensaje (seen o status)
-fastify.patch('/messages/:id', async (req, reply) => {
-  try {
-    const { id } = req.params;
-    const { status, seen } = req.body;
-
-    const updated = await prisma.message.update({
-      where: { id },
-      data: {
-        ...(status && { status }),
-        ...(typeof seen === 'boolean' && { seen }),
+      include: {
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
-
-    reply.send(updated);
+    reply.send(chats);
   } catch (err) {
     fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error actualizando mensaje' });
+    reply.code(500).send({ error: err.message || 'Error listando chats del dashboard' });
   }
 });
 
-// Ruta raíz opcional
-fastify.get('/', async (req, reply) => {
-  reply.send({ status: 'API funcionando' });
-});
-
-// Diagnóstico opcional
-fastify.get('/__diag', async (req, reply) => {
+// Ver un chat (CREADOR) por chatId
+fastify.get('/dashboard/chats/:chatId', async (req, reply) => {
   try {
-    const cols = await prisma.$queryRaw`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'Message' 
-      ORDER BY 1
-    `;
-    const clientVersion = require('@prisma/client/package.json').version;
-    reply.send({ prismaClientVersion: clientVersion, messageColumns: cols });
-  } catch (e) {
-    reply.code(500).send({ error: e.message });
+    const { chatId } = req.params;
+    const chat = await prisma.chat.findUnique({
+      where: { id: chatId },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
+    reply.send(chat);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error obteniendo chat del dashboard' });
   }
 });
 
-// Iniciar servidor
+// Responder en chat (CREADOR)
+fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
+  try {
+    const { chatId } = req.params;
+    const { content } = req.body;
+    if (!content) return reply.code(400).send({ error: 'Falta content' });
+
+    const msg = await prisma.chatMessage.create({
+      data: { chatId, from: 'creator', content },
+    });
+
+    reply.code(201).send(msg);
+  } catch (err) {
+    fastify.log.error(err);
+    reply.code(500).send({ error: err.message || 'Error respondiendo en chat' });
+  }
+});
+
+/* ======================
+   UTILIDADES
+   ====================== */
+fastify.get('/', async () => ({ status: 'API ok' }));
+
 const start = async () => {
   try {
     await fastify.listen({ port: process.env.PORT || 3001, host: '0.0.0.0' });
@@ -151,5 +196,4 @@ const start = async () => {
     process.exit(1);
   }
 };
-
 start();
