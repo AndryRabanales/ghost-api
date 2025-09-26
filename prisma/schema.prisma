@@ -17,13 +17,14 @@ model Creator {
 
 model Message {
   id        String   @id @default(cuid())
-  creatorId String?                          // 👈 opcional mientras haya mensajes viejos
+  creatorId String?                          // opcional para mensajes viejos
   content   String
   alias     String?
   createdAt DateTime @default(now())
   status    Status   @default(PENDING)
+  seen      Boolean  @default(false)          // 👈 nuevo campo para “bloqueado/desbloqueado”
 
-  creator   Creator?  @relation(fields: [creatorId], references: [id]) // 👈 relación opcional
+  creator   Creator?  @relation(fields: [creatorId], references: [id]) // relación opcional
 }
 
 enum Status {
