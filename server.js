@@ -57,8 +57,9 @@ fastify.post('/chats', async (req, reply) => {
       data: { creatorId: creator.id, anonToken },
     });
 
+    // guardamos alias en el primer mensaje
     await prisma.chatMessage.create({
-      data: { chatId: chat.id, from: 'anon', content },
+      data: { chatId: chat.id, from: 'anon', content, alias },
     });
 
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -109,14 +110,14 @@ fastify.get('/chats/:anonToken/:chatId', async (req, reply) => {
 fastify.post('/chats/:anonToken/:chatId/messages', async (req, reply) => {
   try {
     const { anonToken, chatId } = req.params;
-    const { content } = req.body;
+    const { content, alias } = req.body; // ahora leemos alias también
     if (!content) return reply.code(400).send({ error: 'Falta content' });
 
     const chat = await prisma.chat.findFirst({ where: { id: chatId, anonToken } });
     if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
 
     const msg = await prisma.chatMessage.create({
-      data: { chatId: chat.id, from: 'anon', content },
+      data: { chatId: chat.id, from: 'anon', content, alias }, // guardamos alias
     });
 
     reply.code(201).send(msg);
@@ -185,8 +186,6 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
 /* ======================
    MARCAR MENSAJE COMO LEÍDO
    ====================== */
-
-// nuevo endpoint PATCH para marcar mensajes como leídos
 fastify.patch('/chat-messages/:id', async (req, reply) => {
   try {
     const { id } = req.params;

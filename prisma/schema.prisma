@@ -63,7 +63,8 @@ model ChatMessage {
   chatId    String
   from      String   // 'anon' o 'creator'
   content   String
-  seen      Boolean  @default(false)  // <<--- NUEVO CAMPO para Sin leer/Leído
+  alias     String?  // <<--- NUEVO: guardamos alias del anónimo aquí
+  seen      Boolean  @default(false)  // para Sin leer/Leído
   createdAt DateTime @default(now())
 
   chat      Chat     @relation(fields: [chatId], references: [id])
