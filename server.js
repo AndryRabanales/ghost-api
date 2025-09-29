@@ -7,7 +7,8 @@ const fastify = Fastify({ logger: true });
 
 fastify.register(cors, {
   origin: '*',
-  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'OPTIONS', 'PUT', 'DELETE'],
+  preflight: true
 });
 
 const prisma = new PrismaClient();
@@ -22,7 +23,6 @@ fastify.post('/creators', async (req, reply) => {
     const dashboardId = uuidv4();
     const publicId = uuidv4();
 
-    // guardamos también el nombre del creador
     await prisma.creator.create({
       data: { id: dashboardId, publicId, name },
     });
@@ -36,7 +36,7 @@ fastify.post('/creators', async (req, reply) => {
       publicUrl,
       dashboardId,
       publicId,
-      name, // devolvemos nombre
+      name,
     });
   } catch (err) {
     fastify.log.error(err);
@@ -48,26 +48,21 @@ fastify.post('/creators', async (req, reply) => {
    CHATS BIDIRECCIONALES
    ====================== */
 
-// Crear chat + primer mensaje del ANÓNIMO
 fastify.post('/chats', async (req, reply) => {
   try {
     const { publicId, content, alias } = req.body;
     if (!content || !publicId) {
-      return reply
-        .code(400)
-        .send({ error: 'Faltan campos obligatorios (publicId, content)' });
+      return reply.code(400).send({ error: 'Faltan campos obligatorios (publicId, content)' });
     }
 
     const creator = await prisma.creator.findUnique({ where: { publicId } });
-    if (!creator)
-      return reply.code(404).send({ error: 'Creator no encontrado' });
+    if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
 
     const anonToken = uuidv4();
     const chat = await prisma.chat.create({
       data: { creatorId: creator.id, anonToken },
     });
 
-    // guardamos alias en el primer mensaje
     await prisma.chatMessage.create({
       data: { chatId: chat.id, from: 'anon', content, alias },
     });
@@ -79,7 +74,7 @@ fastify.post('/chats', async (req, reply) => {
       chatId: chat.id,
       anonToken,
       chatUrl,
-      creatorName: creator.name, // devolvemos nombre del creador también
+      creatorName: creator.name,
     });
   } catch (err) {
     fastify.log.error(err);
@@ -87,7 +82,6 @@ fastify.post('/chats', async (req, reply) => {
   }
 });
 
-// Listar resumen de un chat por anonToken (token ÚNICO de ese chat)
 fastify.get('/chats/:anonToken', async (req, reply) => {
   try {
     const { anonToken } = req.params;
@@ -95,7 +89,7 @@ fastify.get('/chats/:anonToken', async (req, reply) => {
       where: { anonToken },
       include: {
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-        creator: true, // incluimos datos del creador
+        creator: true,
       },
     });
     if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
@@ -106,7 +100,6 @@ fastify.get('/chats/:anonToken', async (req, reply) => {
   }
 });
 
-// Obtener mensajes de un chat (ANÓNIMO)
 fastify.get('/chats/:anonToken/:chatId', async (req, reply) => {
   try {
     const { anonToken, chatId } = req.params;
@@ -114,23 +107,20 @@ fastify.get('/chats/:anonToken/:chatId', async (req, reply) => {
       where: { id: chatId, anonToken },
       include: {
         messages: { orderBy: { createdAt: 'asc' } },
-        creator: true, // incluimos datos del creador
+        creator: true,
       },
     });
     if (!chat) return reply.code(404).send({ error: 'Chat no encontrado' });
     reply.send({
       messages: chat.messages,
-      creatorName: chat.creator?.name || null, // devolvemos nombre del creador
+      creatorName: chat.creator?.name || null,
     });
   } catch (err) {
     fastify.log.error(err);
-    reply.code(500).send({
-      error: err.message || 'Error obteniendo mensajes del chat',
-    });
+    reply.code(500).send({ error: err.message || 'Error obteniendo mensajes del chat' });
   }
 });
 
-// Enviar mensaje (ANÓNIMO) en un chat
 fastify.post('/chats/:anonToken/:chatId/messages', async (req, reply) => {
   try {
     const { anonToken, chatId } = req.params;
@@ -157,7 +147,6 @@ fastify.post('/chats/:anonToken/:chatId/messages', async (req, reply) => {
    DASHBOARD (CREADOR)
    ====================== */
 
-// Listar chats por creatorId (dashboard)
 fastify.get('/dashboard/:creatorId/chats', async (req, reply) => {
   try {
     const { creatorId } = req.params;
@@ -176,7 +165,6 @@ fastify.get('/dashboard/:creatorId/chats', async (req, reply) => {
   }
 });
 
-// Ver un chat completo (CREADOR)
 fastify.get('/dashboard/chats/:chatId', async (req, reply) => {
   try {
     const { chatId } = req.params;
@@ -198,7 +186,6 @@ fastify.get('/dashboard/chats/:chatId', async (req, reply) => {
   }
 });
 
-// Responder en chat (CREADOR)
 fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
   try {
     const { chatId } = req.params;
@@ -223,17 +210,14 @@ fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply)
   try {
     const { creatorId, messageId } = req.params;
 
-    // Buscar creador
     let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
     if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
 
-    // Si no es premium, gestionar vidas
     if (!creator.isPremium) {
       const now = new Date();
       let lives = creator.lives;
       let lastRefillAt = creator.lastRefillAt || new Date(0);
 
-      // calcular minutos desde última recarga
       const diffMin = Math.floor((now - lastRefillAt) / (1000 * 60));
       if (diffMin >= 30 && lives < 5) {
         const add = Math.min(Math.floor(diffMin / 30), 5 - lives);
@@ -245,14 +229,12 @@ fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply)
         });
       }
 
-      // volvemos a leer creador para tener vidas actualizadas
       creator = await prisma.creator.findUnique({ where: { id: creatorId } });
 
       if (creator.lives <= 0) {
         return reply.code(403).send({ error: 'Sin vidas disponibles, espera 30 min o compra Premium' });
       }
 
-      // consumir 1 vida
       await prisma.creator.update({
         where: { id: creatorId },
         data: {
@@ -261,15 +243,12 @@ fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply)
         }
       });
 
-      // actualizamos de nuevo después de consumirla
       creator = await prisma.creator.findUnique({ where: { id: creatorId } });
     }
 
-    // devolver el mensaje solicitado
     const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!message) return reply.code(404).send({ error: 'Mensaje no encontrado' });
 
-    // opcional: marcar como visto aquí mismo
     if (!message.seen) {
       await prisma.chatMessage.update({
         where: { id: messageId },
@@ -277,7 +256,6 @@ fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply)
       });
     }
 
-    // devolvemos también las vidas actuales
     reply.send({
       ...message,
       lives: creator.lives
