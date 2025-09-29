@@ -214,21 +214,27 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
       let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
       if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
   
-      // 2) Buscar mensaje primero (para decidir si hay que cobrar)
+      // ⚠️ Fallback para null
+      if (creator.lives === null || creator.lives === undefined) {
+        creator = await prisma.creator.update({
+          where: { id: creatorId },
+          data: { lives: 5, lastRefillAt: new Date(0) }
+        });
+      }
+  
+      // 2) Buscar mensaje primero
       const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
       if (!message) return reply.code(404).send({ error: 'Mensaje no encontrado' });
   
-      // 3) Si premium -> no cobra, devolver tal cual + vidas actuales
+      // 3) Premium: no descuenta
       if (creator.isPremium) {
-        // marcar visto si era anónimo y no estaba visto (opcional)
         if (message.from === 'anon' && !message.seen) {
           await prisma.chatMessage.update({ where: { id: messageId }, data: { seen: true } });
         }
         return reply.send({ ...message, lives: creator.lives });
       }
   
-      // 4) No premium:
-      //    Si el mensaje NO es de 'anon' o YA está visto -> NO descuenta vida (idempotente)
+      // 4) Si el mensaje no es anon o ya visto, no descuenta
       if (message.from !== 'anon' || message.seen === true) {
         return reply.send({ ...message, lives: creator.lives });
       }
@@ -254,10 +260,13 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
         return reply.code(403).send({ error: 'Sin vidas disponibles, espera 30 min o compra Premium' });
       }
   
-      // 7) Consumir 1 vida SOLO si es un mensaje anónimo NO visto (caso idempotente)
+      // 7) Consumir 1 vida
       await prisma.creator.update({
         where: { id: creatorId },
-        data: { lives: { decrement: 1 }, lastRefillAt: creator.lastRefillAt }
+        data: {
+          lives: { decrement: 1 },
+          lastRefillAt: creator.lastRefillAt
+        }
       });
   
       // 8) Marcar como visto
@@ -273,6 +282,7 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
       reply.code(500).send({ error: err.message || 'Error abriendo mensaje' });
     }
   });
+  
   
 
 /* ======================
