@@ -219,66 +219,76 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
 /* ======================
    ABRIR MENSAJE (CONSUME VIDA)
    ====================== */
-fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply) => {
-  try {
-    const { creatorId, messageId } = req.params;
-
-    // Buscar creador
-    const creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-    if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
-
-    // Si no es premium, gestionar vidas
-    if (!creator.isPremium) {
-      const now = new Date();
-      let lives = creator.lives;
-      let lastRefillAt = creator.lastRefillAt || new Date(0);
-
-      // calcular minutos desde última recarga
-      const diffMin = Math.floor((now - lastRefillAt) / (1000 * 60));
-      if (diffMin >= 30 && lives < 5) {
-        // cuántas vidas recargar (máx 5)
-        const add = Math.min(Math.floor(diffMin / 30), 5 - lives);
-        lives += add;
-        lastRefillAt = now;
+   fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply) => {
+    try {
+      const { creatorId, messageId } = req.params;
+  
+      // Buscar creador
+      let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+      if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
+  
+      // Si no es premium, gestionar vidas
+      if (!creator.isPremium) {
+        const now = new Date();
+        let lives = creator.lives;
+        let lastRefillAt = creator.lastRefillAt || new Date(0);
+  
+        // calcular minutos desde última recarga
+        const diffMin = Math.floor((now - lastRefillAt) / (1000 * 60));
+        if (diffMin >= 30 && lives < 5) {
+          // cuántas vidas recargar (máx 5)
+          const add = Math.min(Math.floor(diffMin / 30), 5 - lives);
+          lives += add;
+          lastRefillAt = now;
+          await prisma.creator.update({
+            where: { id: creatorId },
+            data: { lives, lastRefillAt }
+          });
+        }
+  
+        // volvemos a leer creador para tener vidas actualizadas
+        creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+  
+        if (creator.lives <= 0) {
+          return reply.code(403).send({ error: 'Sin vidas disponibles, espera 30 min o compra Premium' });
+        }
+  
+        // consumir 1 vida
         await prisma.creator.update({
           where: { id: creatorId },
-          data: { lives, lastRefillAt }
+          data: {
+            lives: { decrement: 1 },
+            lastRefillAt: creator.lastRefillAt
+          }
+        });
+  
+        // actualizamos de nuevo después de consumirla
+        creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+      }
+  
+      // devolver el mensaje solicitado
+      const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+      if (!message) return reply.code(404).send({ error: 'Mensaje no encontrado' });
+  
+      // opcional: marcar como visto aquí mismo
+      if (!message.seen) {
+        await prisma.chatMessage.update({
+          where: { id: messageId },
+          data: { seen: true }
         });
       }
-
-      if (lives <= 0) {
-        return reply.code(403).send({ error: 'Sin vidas disponibles, espera 30 min o compra Premium' });
-      }
-
-      // consumir 1 vida
-      await prisma.creator.update({
-        where: { id: creatorId },
-        data: {
-          lives: { decrement: 1 },
-          lastRefillAt: lastRefillAt
-        }
+  
+      // devolvemos también las vidas actuales
+      reply.send({
+        ...message,
+        lives: creator.lives
       });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: err.message || 'Error abriendo mensaje' });
     }
-
-    // devolver el mensaje solicitado
-    const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
-    if (!message) return reply.code(404).send({ error: 'Mensaje no encontrado' });
-
-    // opcional: marcar como visto aquí mismo
-    if (!message.seen) {
-      await prisma.chatMessage.update({
-        where: { id: messageId },
-        data: { seen: true }
-      });
-    }
-
-    reply.send(message);
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error abriendo mensaje' });
-  }
-});
-
+  });
+  
 /* ======================
    MARCAR MENSAJE COMO LEÍDO
    ====================== */
