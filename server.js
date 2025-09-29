@@ -206,18 +206,37 @@ fastify.post('/dashboard/chats/:chatId/messages', async (req, reply) => {
 /* ======================
    ABRIR MENSAJE (CONSUME VIDA)
    ====================== */
-fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply) => {
-  try {
-    const { creatorId, messageId } = req.params;
-
-    let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-    if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
-
-    if (!creator.isPremium) {
+   fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply) => {
+    try {
+      const { creatorId, messageId } = req.params;
+  
+      // 1) Buscar creador
+      let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+      if (!creator) return reply.code(404).send({ error: 'Creator no encontrado' });
+  
+      // 2) Buscar mensaje primero (para decidir si hay que cobrar)
+      const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+      if (!message) return reply.code(404).send({ error: 'Mensaje no encontrado' });
+  
+      // 3) Si premium -> no cobra, devolver tal cual + vidas actuales
+      if (creator.isPremium) {
+        // marcar visto si era anónimo y no estaba visto (opcional)
+        if (message.from === 'anon' && !message.seen) {
+          await prisma.chatMessage.update({ where: { id: messageId }, data: { seen: true } });
+        }
+        return reply.send({ ...message, lives: creator.lives });
+      }
+  
+      // 4) No premium:
+      //    Si el mensaje NO es de 'anon' o YA está visto -> NO descuenta vida (idempotente)
+      if (message.from !== 'anon' || message.seen === true) {
+        return reply.send({ ...message, lives: creator.lives });
+      }
+  
+      // 5) Recarga de vidas si aplica
       const now = new Date();
       let lives = creator.lives;
       let lastRefillAt = creator.lastRefillAt || new Date(0);
-
       const diffMin = Math.floor((now - lastRefillAt) / (1000 * 60));
       if (diffMin >= 30 && lives < 5) {
         const add = Math.min(Math.floor(diffMin / 30), 5 - lives);
@@ -227,44 +246,34 @@ fastify.post('/dashboard/:creatorId/open-message/:messageId', async (req, reply)
           where: { id: creatorId },
           data: { lives, lastRefillAt }
         });
+        creator = await prisma.creator.findUnique({ where: { id: creatorId } });
       }
-
-      creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-
+  
+      // 6) Verificar vidas
       if (creator.lives <= 0) {
         return reply.code(403).send({ error: 'Sin vidas disponibles, espera 30 min o compra Premium' });
       }
-
+  
+      // 7) Consumir 1 vida SOLO si es un mensaje anónimo NO visto (caso idempotente)
       await prisma.creator.update({
         where: { id: creatorId },
-        data: {
-          lives: { decrement: 1 },
-          lastRefillAt: creator.lastRefillAt
-        }
+        data: { lives: { decrement: 1 }, lastRefillAt: creator.lastRefillAt }
       });
-
+  
+      // 8) Marcar como visto
+      await prisma.chatMessage.update({ where: { id: messageId }, data: { seen: true } });
+  
+      // 9) Releer vidas y responder
       creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+      const freshMsg = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+  
+      reply.send({ ...freshMsg, lives: creator.lives });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: err.message || 'Error abriendo mensaje' });
     }
-
-    const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
-    if (!message) return reply.code(404).send({ error: 'Mensaje no encontrado' });
-
-    if (!message.seen) {
-      await prisma.chatMessage.update({
-        where: { id: messageId },
-        data: { seen: true }
-      });
-    }
-
-    reply.send({
-      ...message,
-      lives: creator.lives
-    });
-  } catch (err) {
-    fastify.log.error(err);
-    reply.code(500).send({ error: err.message || 'Error abriendo mensaje' });
-  }
-});
+  });
+  
 
 /* ======================
    MARCAR MENSAJE COMO LEÍDO
