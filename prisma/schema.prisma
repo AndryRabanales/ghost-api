@@ -17,6 +17,11 @@ model Creator {
   name      String?
   messages  Message[]
   chats     Chat[]
+
+  // ===== NUEVOS CAMPOS PARA VIDAS Y PREMIUM =====
+  lives        Int       @default(5)       // cuántas aperturas le quedan
+  lastRefillAt DateTime?                   // última vez que se recargaron vidas
+  isPremium    Boolean    @default(false)  // premium = vidas ilimitadas
 }
 
 /* ======================
@@ -63,7 +68,7 @@ model ChatMessage {
   chatId    String
   from      String   // 'anon' o 'creator'
   content   String
-  alias     String?  // <<--- NUEVO: guardamos alias del anónimo aquí
+  alias     String?  // guardamos alias del anónimo aquí
   seen      Boolean  @default(false)  // para Sin leer/Leído
   createdAt DateTime @default(now())
 
