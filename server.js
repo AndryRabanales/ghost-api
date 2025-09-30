@@ -9,6 +9,7 @@ const authPlugin = require("./plugins/auth");
 const creatorsRoutes = require("./routes/creators");
 const chatsRoutes = require("./routes/chats");
 const messagesRoutes = require("./routes/messages");
+const publicRoutes = require("./routes/public"); // 👈 nuevo import
 
 const fastify = Fastify({ logger: true });
 
@@ -20,8 +21,8 @@ fastify.register(helmet);
 fastify.register(cors, {
   origin: [
     "http://localhost:3000", // dev local
-    "https://tu-front.vercel.app", // front en producción
-    process.env.FRONTEND_URL || "https://tu-front.vercel.app", // front en producción
+    "https://tu-front.vercel.app", // ejemplo producción
+    process.env.FRONTEND_URL || "https://tu-front.vercel.app",
   ],
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
 });
@@ -42,6 +43,7 @@ fastify.register(authPlugin);
 fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
+fastify.register(publicRoutes); // 👈 aquí lo registras
 
 /* ======================
    Healthcheck
