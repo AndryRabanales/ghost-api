@@ -1,5 +1,19 @@
-node_modules
-# Keep environment variables out of version control
-.env
+# dependencias
+/node_modules
 
+# variables de entorno
+.env
+.env.local
+
+# prisma
 /generated/prisma
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# compilados / builds
+/dist
+/.next
+/out
