@@ -1,3 +1,4 @@
+// routes/creators.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
@@ -162,6 +163,114 @@ async function creatorsRoutes(fastify, opts) {
       } catch (err) {
         fastify.log.error(err);
         reply.code(500).send({ error: "Error consultando vidas" });
+      }
+    }
+  );
+
+  /**
+   * Obtener todos los chats de un dashboard con último mensaje
+   */
+  fastify.get(
+    "/dashboard/:dashboardId/chats",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { dashboardId } = req.params;
+
+        if (req.user.id !== dashboardId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        const chats = await prisma.chat.findMany({
+          where: { creatorId: dashboardId },
+          orderBy: { createdAt: "desc" },
+          include: {
+            messages: {
+              orderBy: { createdAt: "desc" },
+              take: 1, // último mensaje
+            },
+          },
+        });
+
+        const formatted = chats.map((c) => {
+          const lastMsg = c.messages[0] || null;
+          return {
+            id: c.id,
+            anonToken: c.anonToken,
+            createdAt: c.createdAt,
+            lastMessage: lastMsg
+              ? {
+                  id: lastMsg.id,
+                  from: lastMsg.from,
+                  content: lastMsg.content,
+                  alias: lastMsg.alias || "Anónimo",
+                  seen: lastMsg.seen,
+                  createdAt: lastMsg.createdAt,
+                }
+              : null,
+            anonAlias: lastMsg?.alias || "Anónimo",
+          };
+        });
+
+        reply.send(formatted);
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: "Error obteniendo chats del dashboard" });
+      }
+    }
+  );
+
+  /**
+   * Abrir un mensaje y descontar una vida
+   */
+  fastify.post(
+    "/dashboard/:dashboardId/open-message/:messageId",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { dashboardId, messageId } = req.params;
+
+        if (req.user.id !== dashboardId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        let creator = await prisma.creator.findUnique({ where: { id: dashboardId } });
+        if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
+
+        creator = await refillLives(creator);
+
+        if (!creator.isPremium && creator.lives <= 0) {
+          return reply.code(403).send({
+            error: "Sin vidas disponibles",
+            minutesToNext: minutesToNextLife(creator),
+          });
+        }
+
+        // marcar mensaje como visto
+        await prisma.chatMessage.update({
+          where: { id: messageId },
+          data: { seen: true },
+        });
+
+        // descontar vida si no es premium
+        if (!creator.isPremium) {
+          creator = await prisma.creator.update({
+            where: { id: dashboardId },
+            data: {
+              lives: creator.lives - 1,
+              lastUpdated: new Date(),
+            },
+          });
+        }
+
+        reply.send({
+          success: true,
+          lives: creator.lives,
+          minutesToNext: minutesToNextLife(creator),
+        });
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: "Error abriendo mensaje" });
       }
     }
   );

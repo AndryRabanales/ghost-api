@@ -1,60 +1,52 @@
+// routes/messages.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 // Configuración de vidas
-const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos en ms
+const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos
 
 // Helpers internos
 function minutesToNextLife(creator) {
   if (creator.lives >= creator.maxLives) return 0;
-
-  const lastUpdated = creator.lastUpdated
-    ? new Date(creator.lastUpdated).getTime()
-    : Date.now();
-
-  const elapsed = Date.now() - lastUpdated;
+  const now = Date.now();
+  const lastUpdated = new Date(creator.lastUpdated).getTime();
+  const elapsed = now - lastUpdated;
   const remaining = LIFE_INTERVAL - (elapsed % LIFE_INTERVAL);
-
-  return Math.ceil(remaining / 60000); // en minutos
+  return Math.ceil(remaining / 60000);
 }
 
 async function refillLives(creator) {
-  if (creator.lives >= creator.maxLives) return creator;
-
   const now = Date.now();
-  const lastUpdated = creator.lastUpdated
-    ? new Date(creator.lastUpdated).getTime()
-    : 0;
+  const lastUpdated = new Date(creator.lastUpdated).getTime();
   const elapsed = now - lastUpdated;
 
-  if (elapsed >= LIFE_INTERVAL) {
+  if (creator.lives < creator.maxLives) {
     const regenerated = Math.floor(elapsed / LIFE_INTERVAL);
-    let newLives = creator.lives + regenerated;
-    if (newLives > creator.maxLives) newLives = creator.maxLives;
+    if (regenerated > 0) {
+      let newLives = creator.lives + regenerated;
+      if (newLives > creator.maxLives) newLives = creator.maxLives;
 
-    const newLastUpdated = new Date(now - (elapsed % LIFE_INTERVAL));
+      const newLastUpdated = new Date(now - (elapsed % LIFE_INTERVAL));
 
-    creator = await prisma.creator.update({
-      where: { id: creator.id },
-      data: {
-        lives: newLives,
-        lastUpdated: newLastUpdated,
-      },
-    });
+      creator = await prisma.creator.update({
+        where: { id: creator.id },
+        data: {
+          lives: newLives,
+          lastUpdated: newLastUpdated,
+        },
+      });
+    }
   }
-
   return creator;
 }
 
 async function consumeLife(creator) {
-  if (creator.lives <= 0) {
-    throw new Error("Sin vidas disponibles");
-  }
+  if (creator.lives <= 0) throw new Error("Sin vidas disponibles");
 
   return prisma.creator.update({
     where: { id: creator.id },
     data: {
-      lives: { decrement: 1 },
+      lives: creator.lives - 1,
       lastUpdated: new Date(),
     },
   });
@@ -65,40 +57,7 @@ async function consumeLife(creator) {
 // ==================
 async function messagesRoutes(fastify, opts) {
   /**
-   * Listar chats del dashboard
-   */
-  fastify.get(
-    "/dashboard/:creatorId/chats",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
-      try {
-        const { creatorId } = req.params;
-
-        if (req.user.id !== creatorId) {
-          return reply.code(403).send({ error: "No autorizado" });
-        }
-
-        const chats = await prisma.chat.findMany({
-          where: { creatorId },
-          orderBy: { createdAt: "desc" },
-          include: {
-            messages: { orderBy: { createdAt: "desc" }, take: 1 },
-            creator: true,
-          },
-        });
-
-        reply.send(chats);
-      } catch (err) {
-        fastify.log.error(err);
-        reply
-          .code(500)
-          .send({ error: "Error listando chats del dashboard" });
-      }
-    }
-  );
-
-  /**
-   * Obtener mensajes de un chat
+   * Obtener todos los mensajes de un chat
    */
   fastify.get(
     "/dashboard/chats/:chatId",
@@ -115,22 +74,19 @@ async function messagesRoutes(fastify, opts) {
           },
         });
 
-        if (!chat)
-          return reply.code(404).send({ error: "Chat no encontrado" });
-
+        if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
         if (req.user.id !== chat.creatorId) {
           return reply.code(403).send({ error: "No autorizado" });
         }
 
         reply.send({
+          chatId: chat.id,
           messages: chat.messages,
           creatorName: chat.creator?.name || null,
         });
       } catch (err) {
         fastify.log.error(err);
-        reply
-          .code(500)
-          .send({ error: "Error obteniendo chat del dashboard" });
+        reply.code(500).send({ error: "Error obteniendo chat del dashboard" });
       }
     }
   );
@@ -146,13 +102,10 @@ async function messagesRoutes(fastify, opts) {
         const { chatId } = req.params;
         const { content } = req.body;
 
-        if (!content)
-          return reply.code(400).send({ error: "Falta content" });
+        if (!content) return reply.code(400).send({ error: "Falta content" });
 
         const chat = await prisma.chat.findUnique({ where: { id: chatId } });
-        if (!chat)
-          return reply.code(404).send({ error: "Chat no encontrado" });
-
+        if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
         if (req.user.id !== chat.creatorId) {
           return reply.code(403).send({ error: "No autorizado" });
         }
@@ -164,9 +117,7 @@ async function messagesRoutes(fastify, opts) {
         reply.code(201).send(msg);
       } catch (err) {
         fastify.log.error(err);
-        reply
-          .code(500)
-          .send({ error: "Error respondiendo en chat" });
+        reply.code(500).send({ error: "Error respondiendo en chat" });
       }
     }
   );
@@ -180,28 +131,21 @@ async function messagesRoutes(fastify, opts) {
     async (req, reply) => {
       try {
         const { creatorId, messageId } = req.params;
-
         if (req.user.id !== creatorId) {
           return reply.code(403).send({ error: "No autorizado" });
         }
 
-        let creator = await prisma.creator.findUnique({
-          where: { id: creatorId },
-        });
-        if (!creator)
-          return reply.code(404).send({ error: "Creator no encontrado" });
+        let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+        if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
 
-        // Refrescar vidas si aplica
+        // Refrescar vidas
         creator = await refillLives(creator);
 
         // Buscar mensaje
-        const message = await prisma.chatMessage.findUnique({
-          where: { id: messageId },
-        });
-        if (!message)
-          return reply.code(404).send({ error: "Mensaje no encontrado" });
+        const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+        if (!message) return reply.code(404).send({ error: "Mensaje no encontrado" });
 
-        // Premium no consume vidas
+        // Premium → no descuenta vidas
         if (creator.isPremium) {
           if (message.from === "anon" && !message.seen) {
             await prisma.chatMessage.update({
@@ -212,12 +156,12 @@ async function messagesRoutes(fastify, opts) {
           return reply.send({ ...message, lives: "∞" });
         }
 
-        // Si ya fue visto o no es de anon → no consume
-        if (message.from !== "anon" || message.seen === true) {
+        // Si ya fue visto o no es anónimo
+        if (message.from !== "anon" || message.seen) {
           return reply.send({ ...message, lives: creator.lives });
         }
 
-        // Intentar consumir vida
+        // Consumir vida
         try {
           creator = await consumeLife(creator);
         } catch (err) {
@@ -233,9 +177,7 @@ async function messagesRoutes(fastify, opts) {
           data: { seen: true },
         });
 
-        const freshMsg = await prisma.chatMessage.findUnique({
-          where: { id: messageId },
-        });
+        const freshMsg = await prisma.chatMessage.findUnique({ where: { id: messageId } });
 
         reply.send({
           ...freshMsg,

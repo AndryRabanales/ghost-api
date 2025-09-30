@@ -1,4 +1,3 @@
-
 // routes/public.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
@@ -19,16 +18,20 @@ async function publicRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creator no encontrado" });
       }
 
-      // Buscar o crear chat
+      // Determinar anonToken (clave única del anónimo)
+      const anonToken = alias ? alias : crypto.randomUUID();
+
+      // Buscar chat existente
       let chat = await prisma.chat.findFirst({
-        where: { creatorId: creator.id, anonToken: alias || "anon" },
+        where: { creatorId: creator.id, anonToken },
       });
 
+      // Crear chat si no existe
       if (!chat) {
         chat = await prisma.chat.create({
           data: {
             creatorId: creator.id,
-            anonToken: alias || crypto.randomUUID(),
+            anonToken,
           },
         });
       }
@@ -39,11 +42,16 @@ async function publicRoutes(fastify, opts) {
           chatId: chat.id,
           from: "anon",
           content,
-          alias,
+          alias: alias || null,
         },
       });
 
-      reply.code(201).send({ success: true, chatId: chat.id, message });
+      reply.code(201).send({
+        success: true,
+        chatId: chat.id,
+        anonToken,
+        message,
+      });
     } catch (err) {
       fastify.log.error(err);
       reply.code(500).send({ error: "Error enviando mensaje" });

@@ -29,7 +29,12 @@ async function chatsRoutes(fastify, opts) {
       });
 
       await prisma.chatMessage.create({
-        data: { chatId: chat.id, from: "anon", content, alias },
+        data: {
+          chatId: chat.id,
+          from: "anon",
+          content,
+          alias: alias || "Anónimo",
+        },
       });
 
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
@@ -62,7 +67,15 @@ async function chatsRoutes(fastify, opts) {
       });
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
 
-      reply.send(chat);
+      const last = chat.messages?.[0] || null;
+
+      reply.send({
+        id: chat.id,
+        anonToken: chat.anonToken,
+        creatorName: chat.creator?.name || null,
+        lastMessage: last?.content || null,
+        anonAlias: last?.alias || "Anónimo",
+      });
     } catch (err) {
       fastify.log.error(err);
       reply.code(500).send({ error: "Error obteniendo chat" });
@@ -85,7 +98,14 @@ async function chatsRoutes(fastify, opts) {
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
 
       reply.send({
-        messages: chat.messages,
+        messages: chat.messages.map((m) => ({
+          id: m.id,
+          from: m.from,
+          content: m.content,
+          alias: m.alias || "Anónimo",
+          seen: m.seen,
+          createdAt: m.createdAt,
+        })),
         creatorName: chat.creator?.name || null,
       });
     } catch (err) {
@@ -110,7 +130,12 @@ async function chatsRoutes(fastify, opts) {
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
 
       const msg = await prisma.chatMessage.create({
-        data: { chatId: chat.id, from: "anon", content, alias },
+        data: {
+          chatId: chat.id,
+          from: "anon",
+          content,
+          alias: alias || "Anónimo",
+        },
       });
 
       reply.code(201).send(msg);
