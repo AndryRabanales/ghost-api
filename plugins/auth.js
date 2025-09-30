@@ -16,8 +16,10 @@ module.exports = fp(async function (fastify, opts) {
         isPremium: creator.isPremium,
       },
       JWT_SECRET,
+      { expiresIn: "7d" } // 🔒 token expira en 7 días
     );
   });
+  
 
   /**
    * Verifica el token y mete el payload en request.user

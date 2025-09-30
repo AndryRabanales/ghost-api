@@ -22,7 +22,7 @@ fastify.register(cors, {
   origin: [
     "http://localhost:3000", // dev local
     "https://tu-front.vercel.app", // ejemplo producción
-    process.env.FRONTEND_URL || "https://tu-front.vercel.app",
+    process.env.FRONTEND_URL || "https://ghost-web-two.vercel.app/",
   ],
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
 });
