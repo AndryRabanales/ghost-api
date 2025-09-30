@@ -20,6 +20,7 @@ fastify.register(helmet);
 fastify.register(cors, {
   origin: [
     "http://localhost:3000", // dev local
+    "https://tu-front.vercel.app", // front en producción
     process.env.FRONTEND_URL || "https://tu-front.vercel.app", // front en producción
   ],
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
