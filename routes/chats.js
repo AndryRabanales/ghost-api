@@ -18,9 +18,13 @@ async function chatsRoutes(fastify, opts) {
       }
 
       const creator = await prisma.creator.findUnique({ where: { publicId } });
-      if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
+      if (!creator)
+        return reply.code(404).send({ error: "Creator no encontrado" });
 
+      // 🔑 Cada anónimo tendrá un token único
       const anonToken = crypto.randomUUID();
+
+      // Crear el chat
       const chat = await prisma.chat.create({
         data: {
           creatorId: creator.id,
@@ -28,12 +32,13 @@ async function chatsRoutes(fastify, opts) {
         },
       });
 
+      // Insertar primer mensaje
       await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
           from: "anon",
           content,
-          alias: alias || "Anónimo",
+          alias: alias || null,
         },
       });
 
@@ -58,6 +63,7 @@ async function chatsRoutes(fastify, opts) {
   fastify.get("/chats/:anonToken", async (req, reply) => {
     try {
       const { anonToken } = req.params;
+
       const chat = await prisma.chat.findUnique({
         where: { anonToken },
         include: {
@@ -65,6 +71,7 @@ async function chatsRoutes(fastify, opts) {
           creator: true,
         },
       });
+
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
 
       const last = chat.messages?.[0] || null;
@@ -73,7 +80,16 @@ async function chatsRoutes(fastify, opts) {
         id: chat.id,
         anonToken: chat.anonToken,
         creatorName: chat.creator?.name || null,
-        lastMessage: last?.content || null,
+        lastMessage: last
+          ? {
+              id: last.id,
+              from: last.from,
+              content: last.content,
+              alias: last.alias || "Anónimo",
+              seen: last.seen,
+              createdAt: last.createdAt,
+            }
+          : null,
         anonAlias: last?.alias || "Anónimo",
       });
     } catch (err) {
@@ -83,11 +99,12 @@ async function chatsRoutes(fastify, opts) {
   });
 
   /**
-   * Obtener todos los mensajes de un chat por anonToken + chatId
+   * Obtener todos los mensajes de un chat
    */
   fastify.get("/chats/:anonToken/:chatId", async (req, reply) => {
     try {
       const { anonToken, chatId } = req.params;
+
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, anonToken },
         include: {
@@ -95,6 +112,7 @@ async function chatsRoutes(fastify, opts) {
           creator: true,
         },
       });
+
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
 
       reply.send({
@@ -122,7 +140,8 @@ async function chatsRoutes(fastify, opts) {
       const { anonToken, chatId } = req.params;
       const { content, alias } = req.body;
 
-      if (!content) return reply.code(400).send({ error: "Falta content" });
+      if (!content)
+        return reply.code(400).send({ error: "Falta el contenido del mensaje" });
 
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, anonToken },
@@ -134,7 +153,7 @@ async function chatsRoutes(fastify, opts) {
           chatId: chat.id,
           from: "anon",
           content,
-          alias: alias || "Anónimo",
+          alias: alias || null,
         },
       });
 

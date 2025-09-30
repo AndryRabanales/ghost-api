@@ -4,29 +4,33 @@ const prisma = new PrismaClient();
 const crypto = require("crypto");
 
 async function publicRoutes(fastify, opts) {
-  fastify.post("/u/:publicId/send", async (req, reply) => {
+  /**
+   * Enviar un mensaje anónimo a un creador usando publicId
+   */
+  fastify.post("/public/:publicId/messages", async (req, reply) => {
     try {
       const { publicId } = req.params;
       const { alias, content } = req.body;
 
-      if (!content) {
-        return reply.code(400).send({ error: "Falta el contenido del mensaje" });
+      if (!content || content.trim() === "") {
+        return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
       }
 
+      // Buscar creator por publicId
       const creator = await prisma.creator.findUnique({ where: { publicId } });
       if (!creator) {
-        return reply.code(404).send({ error: "Creator no encontrado" });
+        return reply.code(404).send({ error: "Creador no encontrado" });
       }
 
-      // Determinar anonToken (clave única del anónimo)
+      // Si el anónimo dio alias, usarlo, si no generar token único
       const anonToken = alias ? alias : crypto.randomUUID();
 
-      // Buscar chat existente
+      // Buscar chat existente con ese anonToken
       let chat = await prisma.chat.findFirst({
         where: { creatorId: creator.id, anonToken },
       });
 
-      // Crear chat si no existe
+      // Si no existe el chat, crearlo
       if (!chat) {
         chat = await prisma.chat.create({
           data: {
@@ -36,13 +40,13 @@ async function publicRoutes(fastify, opts) {
         });
       }
 
-      // Guardar mensaje
+      // Crear el mensaje en la BD
       const message = await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
           from: "anon",
+          alias: alias || null, // 🔑 Guardamos null si no manda alias
           content,
-          alias: alias || null,
         },
       });
 
@@ -50,10 +54,16 @@ async function publicRoutes(fastify, opts) {
         success: true,
         chatId: chat.id,
         anonToken,
-        message,
+        creatorName: creator.name,
+        message: {
+          id: message.id,
+          content: message.content,
+          alias: message.alias || "Anónimo",
+          createdAt: message.createdAt,
+        },
       });
     } catch (err) {
-      fastify.log.error(err);
+      fastify.log.error("❌ Error en /public/:publicId/messages:", err);
       reply.code(500).send({ error: "Error enviando mensaje" });
     }
   });

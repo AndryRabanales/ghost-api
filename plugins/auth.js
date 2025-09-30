@@ -11,22 +11,22 @@ module.exports = fp(async function (fastify, opts) {
   fastify.decorate("generateToken", (creator) => {
     return jwt.sign(
       {
-        id: creator.id,
-        publicId: creator.publicId,
-        isPremium: creator.isPremium,
+        id: creator.id,         // ID único del dashboard
+        publicId: creator.publicId, // ID público
+        isPremium: creator.isPremium, // si es premium o no
       },
       JWT_SECRET,
-      { expiresIn: "7d" } // 🔒 token expira en 7 días
+      { expiresIn: "7d" } // ⏳ el token expira en 7 días
     );
   });
-  
 
   /**
-   * Verifica el token y mete el payload en request.user
+   * Middleware de autenticación
    */
   fastify.decorate("authenticate", async (request, reply) => {
     try {
       const authHeader = request.headers.authorization;
+
       if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return reply.code(401).send({ error: "Token requerido" });
       }
@@ -34,11 +34,11 @@ module.exports = fp(async function (fastify, opts) {
       const token = authHeader.split(" ")[1];
       const decoded = jwt.verify(token, JWT_SECRET);
 
+      // Guardamos el payload en request.user
       request.user = decoded; // { id, publicId, isPremium }
     } catch (err) {
+      fastify.log.error("❌ Error de autenticación:", err.message);
       return reply.code(401).send({ error: "Token inválido o expirado" });
     }
   });
 });
-
-

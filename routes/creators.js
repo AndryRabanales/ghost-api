@@ -3,7 +3,7 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 
-// Configuración de regeneración
+// Configuración de regeneración de vidas
 const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos
 
 /**
@@ -68,8 +68,8 @@ async function creatorsRoutes(fastify, opts) {
           id: dashboardId,
           publicId,
           name,
-          lives: 6, // vidas iniciales
-          maxLives: 6, // tope
+          lives: 6,
+          maxLives: 6,
           lastUpdated: new Date(),
         },
       });
@@ -187,7 +187,7 @@ async function creatorsRoutes(fastify, opts) {
           include: {
             messages: {
               orderBy: { createdAt: "desc" },
-              take: 1, // último mensaje
+              take: 1,
             },
           },
         });
@@ -220,38 +220,33 @@ async function creatorsRoutes(fastify, opts) {
     }
   );
 
-  // ======================
-// REFRESH TOKEN
-// ======================
-fastify.post("/refresh-token", async (req, reply) => {
-  try {
-    const { publicId } = req.body;
+  /**
+   * Refrescar token con publicId
+   */
+  fastify.post("/refresh-token", async (req, reply) => {
+    try {
+      const { publicId } = req.body;
 
-    if (!publicId) {
-      return reply.code(400).send({ error: "publicId requerido" });
+      if (!publicId) {
+        return reply.code(400).send({ error: "publicId requerido" });
+      }
+
+      const creator = await prisma.creator.findUnique({
+        where: { publicId },
+      });
+
+      if (!creator) {
+        return reply.code(404).send({ error: "Creador no encontrado" });
+      }
+
+      const newToken = fastify.generateToken(creator);
+
+      return reply.send({ token: newToken });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: "Error renovando token" });
     }
-
-    // Buscar creador en la base
-    const creator = await prisma.creator.findUnique({
-      where: { publicId },
-    });
-
-    if (!creator) {
-      return reply.code(404).send({ error: "Creador no encontrado" });
-    }
-
-    // Generar nuevo token
-    const newToken = fastify.generateToken(creator);
-
-    return reply.send({ token: newToken });
-  } catch (err) {
-    console.error("Error en refresh-token:", err);
-    reply.code(500).send({ error: "Error renovando token" });
-  }
-});
-
+  });
 }
-
-
 
 module.exports = creatorsRoutes;
