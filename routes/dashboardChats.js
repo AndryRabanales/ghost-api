@@ -24,14 +24,16 @@ async function dashboardChatsRoutes(fastify, opts) {
       reply.send({
         id: chat.id,
         anonToken: chat.anonToken,
+        anonAlias: chat.anonAlias, // 👈 devolver alias fijo
         messages: chat.messages.map((m) => ({
           id: m.id,
           from: m.from,
-          alias: m.alias || "Anónimo",
+          alias: m.alias || chat.anonAlias || "Anónimo",
           content: m.content,
           createdAt: m.createdAt,
         })),
       });
+      
     } catch (err) {
       fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats/:chatId:", err);
       reply.code(500).send({ error: "Error obteniendo chat" });

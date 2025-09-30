@@ -26,7 +26,11 @@ async function publicRoutes(fastify, opts) {
 
       if (!chat) {
         chat = await prisma.chat.create({
-          data: { creatorId: creator.id, anonToken },
+          data: {
+            creatorId: creator.id,
+            anonToken,
+            anonAlias: alias?.trim() || "Anónimo", // 👈 nuevo campo
+          },
         });
       }
 

@@ -61,6 +61,7 @@ model Chat {
   id         String        @id @default(uuid())
   creatorId  String
   anonToken  String       // identifica al anónimo en este chat
+  anonAlias  String? 
   createdAt  DateTime      @default(now())
 
   creator    Creator       @relation(fields: [creatorId], references: [id])
