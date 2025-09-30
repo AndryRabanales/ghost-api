@@ -19,8 +19,9 @@ model Creator {
   chats        Chat[]
 
   // ===== CAMPOS PARA VIDAS Y PREMIUM =====
-  lives        Int       @default(5)       // cuántas aperturas de mensajes tiene
-  lastRefillAt DateTime?                   // última vez que se recargaron vidas
+  lives        Int       @default(6)       // vidas actuales
+  maxLives     Int       @default(6)       // tope máximo de vidas
+  lastUpdated  DateTime  @default(now())   // última vez que se calculó regeneración
   isPremium    Boolean   @default(false)   // premium = vidas ilimitadas
 
   createdAt    DateTime  @default(now())
