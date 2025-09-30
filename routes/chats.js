@@ -143,19 +143,20 @@ async function chatsRoutes(fastify, opts) {
       if (!content)
         return reply.code(400).send({ error: "Falta el contenido del mensaje" });
 
-      const chat = await prisma.chat.findFirst({
-        where: { id: chatId, anonToken },
-      });
-      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
-
-      const msg = await prisma.chatMessage.create({
-        data: {
-          chatId: chat.id,
-          from: "anon",
-          content,
-          alias: alias || null,
-        },
-      });
+        const chat = await prisma.chat.findFirst({
+          where: { id: chatId, anonToken },
+        });
+        if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+        
+        const msg = await prisma.chatMessage.create({
+          data: {
+            chatId: chat.id,
+            from: "anon",
+            content,
+            alias: chat.anonAlias, // 👈 siempre usar el alias fijo
+          },
+        });
+        
 
       reply.code(201).send(msg);
     } catch (err) {
