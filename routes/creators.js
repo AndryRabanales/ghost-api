@@ -1,21 +1,19 @@
-// routes/creators.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 
-// Configuración de vidas
+// Configuración de regeneración
 const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos
-const MAX_LIVES = 6;
 
 /**
  * Calcula cuántos minutos faltan para la siguiente vida.
  */
 function minutesToNextLife(creator) {
-  if (creator.lives >= MAX_LIVES) return 0;
-  if (!creator.lastRefillAt) return 0;
+  if (creator.lives >= creator.maxLives) return 0;
+  if (!creator.lastUpdated) return 0;
 
   const now = Date.now();
-  const last = new Date(creator.lastRefillAt).getTime();
+  const last = new Date(creator.lastUpdated).getTime();
   const elapsed = now - last;
 
   const remaining = LIFE_INTERVAL - (elapsed % LIFE_INTERVAL);
@@ -26,25 +24,23 @@ function minutesToNextLife(creator) {
  * Revisa si corresponde recargar vidas automáticamente.
  */
 async function refillLives(creator) {
-  if (creator.lives >= MAX_LIVES) return creator;
+  if (creator.lives >= creator.maxLives) return creator;
 
   const now = Date.now();
-  const last = creator.lastRefillAt
-    ? new Date(creator.lastRefillAt).getTime()
-    : 0;
-
+  const last = creator.lastUpdated ? new Date(creator.lastUpdated).getTime() : 0;
   const elapsed = now - last;
+
   if (elapsed < LIFE_INTERVAL) return creator;
 
   const regenerated = Math.floor(elapsed / LIFE_INTERVAL);
   let newLives = creator.lives + regenerated;
-  if (newLives > MAX_LIVES) newLives = MAX_LIVES;
+  if (newLives > creator.maxLives) newLives = creator.maxLives;
 
   const updated = await prisma.creator.update({
     where: { id: creator.id },
     data: {
       lives: newLives,
-      lastRefillAt: new Date(now - (elapsed % LIFE_INTERVAL)),
+      lastUpdated: new Date(now - (elapsed % LIFE_INTERVAL)),
     },
   });
 
@@ -71,8 +67,9 @@ async function creatorsRoutes(fastify, opts) {
           id: dashboardId,
           publicId,
           name,
-          lives: MAX_LIVES,
-          lastRefillAt: new Date(),
+          lives: 6, // vidas iniciales
+          maxLives: 6, // tope
+          lastUpdated: new Date(),
         },
       });
 
@@ -158,7 +155,7 @@ async function creatorsRoutes(fastify, opts) {
 
         reply.send({
           lives: creator.lives,
-          maxLives: MAX_LIVES,
+          maxLives: creator.maxLives,
           minutesToNext: minutesToNextLife(creator),
           isPremium: creator.isPremium,
         });

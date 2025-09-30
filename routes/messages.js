@@ -1,45 +1,46 @@
-// routes/messages.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 // Configuración de vidas
-const LIFE_INTERVAL = 10 * 1000; // 15 minutos en ms
+const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos en ms
 
 // Helpers internos
 function minutesToNextLife(creator) {
-  const now = Date.now();
-  const lastUpdated = new Date(creator.lastUpdated).getTime();
-  const elapsed = now - lastUpdated;
-
   if (creator.lives >= creator.maxLives) return 0;
 
+  const lastUpdated = creator.lastUpdated
+    ? new Date(creator.lastUpdated).getTime()
+    : Date.now();
+
+  const elapsed = Date.now() - lastUpdated;
   const remaining = LIFE_INTERVAL - (elapsed % LIFE_INTERVAL);
-  return Math.ceil(remaining / 60000);
+
+  return Math.ceil(remaining / 60000); // en minutos
 }
 
 async function refillLives(creator) {
+  if (creator.lives >= creator.maxLives) return creator;
+
   const now = Date.now();
-  const lastUpdated = new Date(creator.lastUpdated).getTime();
+  const lastUpdated = creator.lastUpdated
+    ? new Date(creator.lastUpdated).getTime()
+    : 0;
   const elapsed = now - lastUpdated;
 
-  if (creator.lives < creator.maxLives) {
+  if (elapsed >= LIFE_INTERVAL) {
     const regenerated = Math.floor(elapsed / LIFE_INTERVAL);
-    if (regenerated > 0) {
-      let newLives = creator.lives + regenerated;
-      if (newLives > creator.maxLives) newLives = creator.maxLives;
+    let newLives = creator.lives + regenerated;
+    if (newLives > creator.maxLives) newLives = creator.maxLives;
 
-      const newLastUpdated = new Date(
-        now - (elapsed % LIFE_INTERVAL)
-      );
+    const newLastUpdated = new Date(now - (elapsed % LIFE_INTERVAL));
 
-      creator = await prisma.creator.update({
-        where: { id: creator.id },
-        data: {
-          lives: newLives,
-          lastUpdated: newLastUpdated,
-        },
-      });
-    }
+    creator = await prisma.creator.update({
+      where: { id: creator.id },
+      data: {
+        lives: newLives,
+        lastUpdated: newLastUpdated,
+      },
+    });
   }
 
   return creator;
@@ -53,7 +54,7 @@ async function consumeLife(creator) {
   return prisma.creator.update({
     where: { id: creator.id },
     data: {
-      lives: creator.lives - 1,
+      lives: { decrement: 1 },
       lastUpdated: new Date(),
     },
   });

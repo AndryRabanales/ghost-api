@@ -1,9 +1,5 @@
-// utils/lives.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-
-// Vidas máximas que puede tener un usuario normal
-const MAX_LIVES = 5;
 
 // Cada cuánto se regenera una vida (en minutos)
 const REFILL_INTERVAL_MINUTES = 15;
@@ -16,24 +12,24 @@ const REFILL_INTERVAL_MINUTES = 15;
 async function refillLives(creator) {
   if (creator.isPremium) return creator; // Premium tiene vidas infinitas
 
-  let lives = creator.lives ?? MAX_LIVES;
-  let lastRefillAt = creator.lastRefillAt || new Date(0);
+  let lives = creator.lives ?? creator.maxLives;
+  let lastUpdated = creator.lastUpdated || new Date(0);
 
   const now = new Date();
-  const diffMinutes = Math.floor((now - lastRefillAt) / (1000 * 60));
+  const diffMinutes = Math.floor((now - lastUpdated) / (1000 * 60));
 
-  if (diffMinutes >= REFILL_INTERVAL_MINUTES && lives < MAX_LIVES) {
+  if (diffMinutes >= REFILL_INTERVAL_MINUTES && lives < creator.maxLives) {
     // cuántas vidas regenerar
     const toAdd = Math.min(
       Math.floor(diffMinutes / REFILL_INTERVAL_MINUTES),
-      MAX_LIVES - lives
+      creator.maxLives - lives
     );
     lives += toAdd;
-    lastRefillAt = now;
+    lastUpdated = now;
 
     creator = await prisma.creator.update({
       where: { id: creator.id },
-      data: { lives, lastRefillAt },
+      data: { lives, lastUpdated },
     });
   }
 
@@ -58,7 +54,10 @@ async function consumeLife(creatorId) {
   if (!creator.isPremium) {
     creator = await prisma.creator.update({
       where: { id: creatorId },
-      data: { lives: { decrement: 1 } },
+      data: {
+        lives: { decrement: 1 },
+        lastUpdated: new Date(),
+      },
     });
   }
 
@@ -73,18 +72,17 @@ async function consumeLife(creatorId) {
 function minutesToNextLife(creator) {
   if (creator.isPremium) return 0;
 
-  if (creator.lives >= MAX_LIVES) return 0;
+  if (creator.lives >= creator.maxLives) return 0;
 
-  const lastRefillAt = creator.lastRefillAt || new Date();
+  const lastUpdated = creator.lastUpdated || new Date();
   const now = new Date();
-  const diffMinutes = Math.floor((now - lastRefillAt) / (1000 * 60));
+  const diffMinutes = Math.floor((now - lastUpdated) / (1000 * 60));
 
   const remaining = REFILL_INTERVAL_MINUTES - (diffMinutes % REFILL_INTERVAL_MINUTES);
   return remaining > 0 ? remaining : 0;
 }
 
 module.exports = {
-  MAX_LIVES,
   REFILL_INTERVAL_MINUTES,
   refillLives,
   consumeLife,
