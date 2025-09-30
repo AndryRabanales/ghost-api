@@ -68,4 +68,7 @@ const start = async () => {
   }
 };
 
+fastify.register(require("./routes/dashboardChats"));
+
+
 start();

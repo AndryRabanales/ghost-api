@@ -60,7 +60,7 @@ model Response {
 model Chat {
   id         String        @id @default(uuid())
   creatorId  String
-  anonToken  String        @unique       // identifica al anónimo en este chat
+  anonToken  String       // identifica al anónimo en este chat
   createdAt  DateTime      @default(now())
 
   creator    Creator       @relation(fields: [creatorId], references: [id])
