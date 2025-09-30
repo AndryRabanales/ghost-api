@@ -219,9 +219,8 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
-}
 
-// ======================
+  // ======================
 // REFRESH TOKEN
 // ======================
 fastify.post("/refresh-token", async (req, reply) => {
@@ -250,6 +249,9 @@ fastify.post("/refresh-token", async (req, reply) => {
     reply.code(500).send({ error: "Error renovando token" });
   }
 });
+
+}
+
 
 
 module.exports = creatorsRoutes;
