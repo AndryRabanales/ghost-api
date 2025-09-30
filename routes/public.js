@@ -1,72 +1,125 @@
-// routes/public.js
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
-const crypto = require("crypto");
+"use client";
+import { useState, useEffect } from "react";
 
-async function publicRoutes(fastify, opts) {
-  /**
-   * Enviar un mensaje anónimo a un creador usando publicId
-   */
-  fastify.post("/public/:publicId/messages", async (req, reply) => {
-    try {
-      const { publicId } = req.params;
-      const { alias, content } = req.body;
+const API =
+  process.env.NEXT_PUBLIC_API || "https://ghost-api-2qmr.onrender.com";
 
-      if (!content || content.trim() === "") {
-        return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
-      }
+export default function AnonMessageForm({ publicId }) {
+  const [alias, setAlias] = useState("");
+  const [content, setContent] = useState("");
+  const [status, setStatus] = useState(null);
+  const [chatUrl, setChatUrl] = useState(null);
 
-      // Buscar creator por publicId
-      const creator = await prisma.creator.findUnique({ where: { publicId } });
-      if (!creator) {
-        return reply.code(404).send({ error: "Creador no encontrado" });
-      }
-
-      // Si el anónimo dio alias, usarlo, si no generar token único
-      const anonToken = alias ? alias : crypto.randomUUID();
-
-      // Buscar chat existente con ese anonToken
-      let chat = await prisma.chat.findFirst({
-        where: { creatorId: creator.id, anonToken },
-      });
-
-      // Si no existe el chat, crearlo
-      if (!chat) {
-        chat = await prisma.chat.create({
-          data: {
-            creatorId: creator.id,
-            anonToken,
-          },
-        });
-      }
-
-      // Crear el mensaje en la BD
-      const message = await prisma.chatMessage.create({
-        data: {
-          chatId: chat.id,
-          from: "anon",
-          alias: alias || null, // 🔑 Guardamos null si no manda alias
-          content,
-        },
-      });
-
-      reply.code(201).send({
-        success: true,
-        chatId: chat.id,
-        anonToken,
-        creatorName: creator.name,
-        message: {
-          id: message.id,
-          content: message.content,
-          alias: message.alias || "Anónimo",
-          createdAt: message.createdAt,
-        },
-      });
-    } catch (err) {
-      fastify.log.error("❌ Error en /public/:publicId/messages:", err);
-      reply.code(500).send({ error: "Error enviando mensaje" });
+  // 🔄 Revisar si ya existe un chat guardado para este alias
+  useEffect(() => {
+    if (!alias) return;
+    const savedChat = localStorage.getItem(`chat_${publicId}_${alias}`);
+    if (savedChat) {
+      setChatUrl(savedChat);
     }
-  });
-}
+  }, [publicId, alias]);
 
-module.exports = publicRoutes;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setStatus("loading");
+    setChatUrl(null);
+
+    try {
+      const res = await fetch(`${API}/public/${publicId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias, content }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error enviando mensaje");
+
+      setContent("");
+      setStatus("success");
+
+      if (data.chatUrl) {
+        setChatUrl(data.chatUrl);
+        // 👇 Guardar chat en localStorage por alias
+        localStorage.setItem(`chat_${publicId}_${alias || data.anonToken}`, data.chatUrl);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("error");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
+      <input
+        type="text"
+        placeholder="Tu alias (opcional)"
+        value={alias}
+        onChange={(e) => setAlias(e.target.value)}
+        style={{ padding: 10, border: "1px solid #ccc", borderRadius: 6 }}
+      />
+
+      <textarea
+        placeholder="Escribe tu mensaje anónimo..."
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        required
+        style={{
+          padding: 10,
+          border: "1px solid #ccc",
+          borderRadius: 6,
+          minHeight: 100,
+        }}
+      />
+
+      <button
+        type="submit"
+        disabled={status === "loading"}
+        style={{
+          padding: "10px 20px",
+          backgroundColor: "#4CAF50",
+          color: "#fff",
+          border: "none",
+          borderRadius: 6,
+          cursor: "pointer",
+        }}
+      >
+        {status === "loading" ? "Enviando..." : "Enviar mensaje"}
+      </button>
+
+      {status === "success" && (
+        <div style={{ color: "green" }}>
+          ✅ Mensaje enviado con éxito
+          {chatUrl && (
+            <p style={{ marginTop: 8 }}>
+              🔗 Tu chat está aquí:{" "}
+              <a
+                href={chatUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#0070f3", textDecoration: "underline" }}
+              >
+                {chatUrl}
+              </a>
+            </p>
+          )}
+        </div>
+      )}
+      {status === "error" && (
+        <p style={{ color: "red" }}>❌ Error al enviar el mensaje</p>
+      )}
+      {chatUrl && status !== "success" && (
+        <p style={{ marginTop: 8, color: "#555" }}>
+          📌 Ya tienes un chat guardado:{" "}
+          <a
+            href={chatUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#0070f3", textDecoration: "underline" }}
+          >
+            {chatUrl}
+          </a>
+        </p>
+      )}
+    </form>
+  );
+}
