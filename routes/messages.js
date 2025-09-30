@@ -1,0 +1,176 @@
+// routes/messages.js
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
+const { consumeLife, refillLives, minutesToNextLife } = require("../utils/lives");
+
+async function messagesRoutes(fastify, opts) {
+  /**
+   * Listar chats del dashboard
+   */
+  fastify.get(
+    "/dashboard/:creatorId/chats",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { creatorId } = req.params;
+
+        if (req.user.id !== creatorId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        const chats = await prisma.chat.findMany({
+          where: { creatorId },
+          orderBy: { createdAt: "desc" },
+          include: {
+            messages: { orderBy: { createdAt: "desc" }, take: 1 },
+            creator: true,
+          },
+        });
+
+        reply.send(chats);
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: "Error listando chats del dashboard" });
+      }
+    }
+  );
+
+  /**
+   * Obtener mensajes de un chat
+   */
+  fastify.get(
+    "/dashboard/chats/:chatId",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { chatId } = req.params;
+
+        const chat = await prisma.chat.findUnique({
+          where: { id: chatId },
+          include: {
+            messages: { orderBy: { createdAt: "asc" } },
+            creator: true,
+          },
+        });
+
+        if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+        if (req.user.id !== chat.creatorId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        reply.send({
+          messages: chat.messages,
+          creatorName: chat.creator?.name || null,
+        });
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: "Error obteniendo chat del dashboard" });
+      }
+    }
+  );
+
+  /**
+   * Responder en un chat (mensaje del creador)
+   */
+  fastify.post(
+    "/dashboard/chats/:chatId/messages",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { chatId } = req.params;
+        const { content } = req.body;
+
+        if (!content) return reply.code(400).send({ error: "Falta content" });
+
+        const chat = await prisma.chat.findUnique({ where: { id: chatId } });
+        if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+        if (req.user.id !== chat.creatorId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        const msg = await prisma.chatMessage.create({
+          data: { chatId, from: "creator", content },
+        });
+
+        reply.code(201).send(msg);
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: "Error respondiendo en chat" });
+      }
+    }
+  );
+
+  /**
+   * Abrir un mensaje anónimo → consume vida
+   */
+  fastify.post(
+    "/dashboard/:creatorId/open-message/:messageId",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { creatorId, messageId } = req.params;
+
+        if (req.user.id !== creatorId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+        if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
+
+        // Recargar vidas si aplica
+        creator = await refillLives(creator);
+
+        // Verificar mensaje
+        const message = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+        if (!message) return reply.code(404).send({ error: "Mensaje no encontrado" });
+
+        // Premium no consume vida
+        if (creator.isPremium) {
+          if (message.from === "anon" && !message.seen) {
+            await prisma.chatMessage.update({
+              where: { id: messageId },
+              data: { seen: true },
+            });
+          }
+          return reply.send({ ...message, lives: "∞" });
+        }
+
+        // Si ya fue visto o no es de anon → no consume
+        if (message.from !== "anon" || message.seen === true) {
+          return reply.send({ ...message, lives: creator.lives });
+        }
+
+        // Consumir vida
+        try {
+          creator = await consumeLife(creatorId);
+        } catch (err) {
+          return reply.code(403).send({
+            error: err.message,
+            minutesToNext: minutesToNextLife(creator),
+          });
+        }
+
+        // Marcar mensaje como visto
+        await prisma.chatMessage.update({
+          where: { id: messageId },
+          data: { seen: true },
+        });
+
+        const freshMsg = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+
+        reply.send({
+          ...freshMsg,
+          lives: creator.lives,
+          minutesToNext: minutesToNextLife(creator),
+        });
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: "Error abriendo mensaje" });
+      }
+    }
+  );
+}
+
+module.exports = messagesRoutes;

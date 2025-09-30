@@ -12,16 +12,19 @@ generator client {
    CREATOR (DASHBOARD)
    ====================== */
 model Creator {
-  id        String    @id           // dashboardId (uuid)
-  publicId  String    @unique
-  name      String?
-  messages  Message[]
-  chats     Chat[]
+  id           String    @id            // dashboardId (uuid generado en Node)
+  publicId     String    @unique
+  name         String?
+  messages     Message[]
+  chats        Chat[]
 
-  // ===== NUEVOS CAMPOS PARA VIDAS Y PREMIUM =====
-  lives        Int       @default(5)       // cuántas aperturas le quedan
+  // ===== CAMPOS PARA VIDAS Y PREMIUM =====
+  lives        Int       @default(5)       // cuántas aperturas de mensajes tiene
   lastRefillAt DateTime?                   // última vez que se recargaron vidas
-  isPremium    Boolean    @default(false)  // premium = vidas ilimitadas
+  isPremium    Boolean   @default(false)   // premium = vidas ilimitadas
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
 }
 
 /* ======================
@@ -35,7 +38,7 @@ model Message {
   seen        Boolean    @default(false)
   createdAt   DateTime   @default(now())
 
-  replyToken  String?     @unique     // link para anónimo
+  replyToken  String?    @unique     // link único para responder
   responses   Response[]
 
   creator     Creator    @relation(fields: [creatorId], references: [id])
@@ -56,7 +59,7 @@ model Response {
 model Chat {
   id         String        @id @default(uuid())
   creatorId  String
-  anonToken  String        @unique      // identifica al anónimo en este chat
+  anonToken  String        @unique       // identifica al anónimo en este chat
   createdAt  DateTime      @default(now())
 
   creator    Creator       @relation(fields: [creatorId], references: [id])
@@ -68,8 +71,8 @@ model ChatMessage {
   chatId    String
   from      String   // 'anon' o 'creator'
   content   String
-  alias     String?  // guardamos alias del anónimo aquí
-  seen      Boolean  @default(false)  // para Sin leer/Leído
+  alias     String?  // alias del anónimo
+  seen      Boolean  @default(false)  // Sin leer/Leído
   createdAt DateTime @default(now())
 
   chat      Chat     @relation(fields: [chatId], references: [id])
