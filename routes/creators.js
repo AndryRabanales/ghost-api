@@ -221,4 +221,35 @@ async function creatorsRoutes(fastify, opts) {
   );
 }
 
+// ======================
+// REFRESH TOKEN
+// ======================
+fastify.post("/refresh-token", async (req, reply) => {
+  try {
+    const { publicId } = req.body;
+
+    if (!publicId) {
+      return reply.code(400).send({ error: "publicId requerido" });
+    }
+
+    // Buscar creador en la base
+    const creator = await prisma.creator.findUnique({
+      where: { publicId },
+    });
+
+    if (!creator) {
+      return reply.code(404).send({ error: "Creador no encontrado" });
+    }
+
+    // Generar nuevo token
+    const newToken = fastify.generateToken(creator);
+
+    return reply.send({ token: newToken });
+  } catch (err) {
+    console.error("Error en refresh-token:", err);
+    reply.code(500).send({ error: "Error renovando token" });
+  }
+});
+
+
 module.exports = creatorsRoutes;
