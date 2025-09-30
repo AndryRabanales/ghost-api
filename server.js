@@ -19,13 +19,23 @@ const fastify = Fastify({ logger: true });
 fastify.register(helmet);
 
 fastify.register(cors, {
-  origin: [
-    "http://localhost:3000", // dev local
-    "https://tu-front.vercel.app", // ejemplo producción
-    process.env.FRONTEND_URL || "https://ghost-web-two.vercel.app/",
-  ],
+  origin: (origin, cb) => {
+    const allowedOrigins = [
+      "http://localhost:3000",          // dev local
+      "https://ghost-web-two.vercel.app", // producción Vercel
+    ];
+
+    // permitir requests sin origin (como healthchecks de Render)
+    if (!origin || allowedOrigins.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Not allowed by CORS"), false);
+    }
+  },
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 });
+
 
 fastify.register(rateLimit, {
   max: 60, // 60 req/min por IP
