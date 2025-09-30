@@ -16,7 +16,6 @@ module.exports = fp(async function (fastify, opts) {
         isPremium: creator.isPremium,
       },
       JWT_SECRET,
-      { expiresIn: "7d" } // dura 7 días
     );
   });
 
