@@ -9,7 +9,7 @@ const authPlugin = require("./plugins/auth");
 const creatorsRoutes = require("./routes/creators");
 const chatsRoutes = require("./routes/chats");
 const messagesRoutes = require("./routes/messages");
-const publicRoutes = require("./routes/public"); // 👈 nuevo import
+const publicRoutes = require("./routes/public");
 
 const fastify = Fastify({ logger: true });
 
@@ -30,14 +30,14 @@ fastify.register(cors, (instance) => {
     // 👇 rutas públicas aceptan todos los orígenes
     if (req.url.startsWith("/public")) {
       cb(null, {
-        origin: true, // permite cualquiera
+        origin: true,
         methods: ["GET", "POST", "PATCH", "OPTIONS"],
         allowedHeaders: ["Content-Type"],
       });
       return;
     }
 
-    // 👇 rutas privadas (dashboard, creators, etc.)
+    // 👇 rutas privadas
     if (!origin || allowedOrigins.includes(origin)) {
       cb(null, {
         origin: true,
@@ -50,15 +50,8 @@ fastify.register(cors, (instance) => {
   };
 });
 
-// ✅ agregado: registrar también cors con fastify (sin tocar el tuyo)
-fastify.register(cors, {
-  origin: true,
-  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-});
-
 fastify.register(rateLimit, {
-  max: 60, // 60 req/min por IP
+  max: 60,
   timeWindow: "1 minute",
 });
 
@@ -73,7 +66,7 @@ fastify.register(authPlugin);
 fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
-fastify.register(publicRoutes); // 👈 aquí lo registras
+fastify.register(publicRoutes);
 fastify.register(require("./routes/dashboardChats"));
 fastify.register(require("./routes/subscribe"));
 
@@ -89,7 +82,7 @@ const start = async () => {
   try {
     await fastify.listen({
       port: process.env.PORT || 3001,
-      host: "0.0.0.0", // necesario para Render
+      host: "0.0.0.0",
     });
     fastify.log.info(
       `🚀 Servidor corriendo en puerto ${process.env.PORT || 3001}`
