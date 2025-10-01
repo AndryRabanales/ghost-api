@@ -1,41 +1,40 @@
 // routes/subscribe.js
+const fp = require("fastify-plugin");
 const mercadopago = require("mercadopago");
 
-async function subscribeRoutes(fastify, opts) {
-  // Configurar el SDK con tu Access Token
-  mercadopago.configure({
-    access_token: process.env.MP_ACCESS_TOKEN,
-  });
+// 👉 cliente nuevo
+const client = new mercadopago.MercadoPagoConfig({
+  accessToken: process.env.MP_ACCESS_TOKEN,
+});
 
-  /**
-   * Crear suscripción/pago único
-   */
+async function subscribeRoutes(fastify, opts) {
   fastify.post("/subscribe", async (req, reply) => {
     try {
-      const preference = {
-        items: [
-          {
-            title: "Suscripción Premium Ghost",
-            unit_price: 99, // 💵 precio en pesos MXN
-            quantity: 1,
+      const preference = new mercadopago.Preference(client);
+
+      const result = await preference.create({
+        body: {
+          items: [
+            {
+              title: "Suscripción Premium",
+              quantity: 1,
+              unit_price: 99, // 💵 precio
+            },
+          ],
+          back_urls: {
+            success: "https://ghost-web-two.vercel.app/success",
+            failure: "https://ghost-web-two.vercel.app/failure",
           },
-        ],
-        back_urls: {
-          success: process.env.FRONTEND_URL + "/premium/success",
-          failure: process.env.FRONTEND_URL + "/premium/failure",
-          pending: process.env.FRONTEND_URL + "/premium/pending",
+          auto_return: "approved",
         },
-        auto_return: "approved",
-      };
+      });
 
-      const response = await mercadopago.preferences.create(preference);
-
-      return { id: response.body.id, init_point: response.body.init_point };
+      return reply.send({ init_point: result.init_point });
     } catch (err) {
-      req.log.error("❌ Error creando preferencia:", err);
-      return reply.code(500).send({ error: "Error creando preferencia de pago" });
+      fastify.log.error("❌ Error en /subscribe:", err);
+      return reply.code(500).send({ error: "Error creando preferencia" });
     }
   });
 }
 
-module.exports = subscribeRoutes;
+module.exports = fp(subscribeRoutes);
