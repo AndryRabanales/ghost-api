@@ -117,23 +117,22 @@ async function creatorsRoutes(fastify, opts) {
   /**
    * Obtener mi perfil (requiere auth)
    */
-  fastify.get(
-    "/creators/me",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
-      try {
-        const creator = await prisma.creator.findUnique({
-          where: { id: req.user.id },
-        });
-        if (!creator) return reply.code(404).send({ error: "No encontrado" });
+  const { refillLives, minutesToNextLife } = require("../utils/lives");
 
-        reply.send(creator);
-      } catch (err) {
-        fastify.log.error(err);
-        reply.code(500).send({ error: "Error obteniendo perfil" });
-      }
-    }
-  );
+fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+  const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
+  if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
+
+  const updated = await refillLives(creator);
+  reply.send({
+    id: updated.id,
+    name: updated.name,
+    publicId: updated.publicId,
+    lives: updated.lives,
+    minutesToNextLife: minutesToNextLife(updated),
+  });
+});
+
 
   /**
    * Consultar vidas actuales del creator
