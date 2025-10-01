@@ -1,6 +1,7 @@
 // routes/dashboardChats.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
+const { refillLives, minutesToNextLife, consumeLife } = require("../utils/lives"); // 👈 import agregado
 
 async function dashboardChatsRoutes(fastify, opts) {
   /**
@@ -9,6 +10,13 @@ async function dashboardChatsRoutes(fastify, opts) {
   fastify.get("/dashboard/:dashboardId/chats/:chatId", async (req, reply) => {
     try {
       const { dashboardId, chatId } = req.params;
+
+      // ⚡ actualizar vidas antes de responder
+      let creator = await prisma.creator.findUnique({ where: { id: dashboardId } });
+      if (!creator) {
+        return reply.code(404).send({ error: "Creador no encontrado" });
+      }
+      creator = await refillLives(creator);
 
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, creatorId: dashboardId },
@@ -32,6 +40,9 @@ async function dashboardChatsRoutes(fastify, opts) {
           content: m.content,
           createdAt: m.createdAt,
         })),
+        // 👇 añadidos
+        livesLeft: creator.lives,
+        minutesToNextLife: minutesToNextLife(creator),
       });
       
     } catch (err) {
@@ -43,8 +54,6 @@ async function dashboardChatsRoutes(fastify, opts) {
   /**
    * Enviar mensaje como creador
    */
-  const { consumeLife, minutesToNextLife } = require("../utils/lives");
-
   fastify.post("/dashboard/:dashboardId/chats/:chatId/messages", async (req, reply) => {
     try {
       const { dashboardId, chatId } = req.params;
@@ -97,7 +106,6 @@ async function dashboardChatsRoutes(fastify, opts) {
       reply.code(500).send({ error: "Error enviando mensaje" });
     }
   });
-  
 }
 
 module.exports = dashboardChatsRoutes;
