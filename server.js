@@ -18,7 +18,7 @@ const fastify = Fastify({ logger: true });
    ====================== */
 fastify.register(helmet);
 
-ffastify.register(cors, (instance) => {
+fastify.register(cors, (instance) => {
   return (req, cb) => {
     const allowedOrigins = [
       "http://localhost:3000",
