@@ -1,82 +1,89 @@
+// utils/lives.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-// Cada cuánto se regenera una vida (en minutos)
 const REFILL_INTERVAL_MINUTES = 15;
 
-/**
- * Recalcula las vidas de un creador según el tiempo transcurrido
- */
-async function refillLives(creator) {
-  if (creator.isPremium) return creator; // Premium tiene vidas infinitas
-
-  let lives = creator.lives ?? creator.maxLives;
-  let lastUpdated = creator.lastUpdated || new Date(0);
+async function refillLivesIfNeeded(creator) {
+  if (!creator) return creator;
+  if (creator.isPremium) return creator;
 
   const now = new Date();
-  const diffMinutes = Math.floor((now - lastUpdated) / (1000 * 60));
-
-  if (diffMinutes >= REFILL_INTERVAL_MINUTES && lives < creator.maxLives) {
-    const toAdd = Math.min(
-      Math.floor(diffMinutes / REFILL_INTERVAL_MINUTES),
-      creator.maxLives - lives
-    );
-    lives += toAdd;
-    lastUpdated = now;
-
-    creator = await prisma.creator.update({
-      where: { id: creator.id },
-      data: { lives, lastUpdated },
-    });
+  const diffMinutes = Math.floor((now - creator.lastUpdated) / (1000 * 60));
+  if (diffMinutes < REFILL_INTERVAL_MINUTES || creator.lives >= creator.maxLives) {
+    return creator;
   }
 
-  return creator;
+  const toAdd = Math.min(
+    Math.floor(diffMinutes / REFILL_INTERVAL_MINUTES),
+    creator.maxLives - creator.lives
+  );
+
+  const updated = await prisma.creator.update({
+    where: { id: creator.id },
+    data: {
+      lives: creator.lives + toAdd,
+      lastUpdated: now,
+    },
+  });
+
+  return updated;
 }
 
 /**
- * Consume 1 vida si está disponible
+ * Consume 1 vida de forma atómica.
+ * - Refresca vidas si corresponde.
+ * - Si es premium, no decrementa.
+ * - Si no hay vidas, lanza un Error.
  */
 async function consumeLife(creatorId) {
+  // 1) obtener creator
   let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
   if (!creator) throw new Error("Creator no encontrado");
 
-  creator = await refillLives(creator);
+  // 2) recalcular vidas si corresponde
+  creator = await refillLivesIfNeeded(creator);
 
-  if (!creator.isPremium && creator.lives <= 0) {
-    throw new Error("Sin vidas disponibles, espera 15 min o compra Premium");
+  if (creator.isPremium) {
+    // premium = no consumir
+    return creator;
   }
 
-  if (!creator.isPremium) {
-    creator = await prisma.creator.update({
-      where: { id: creatorId },
-      data: {
-        lives: { decrement: 1 },
-        lastUpdated: new Date(),
-      },
-    });
+  if (creator.lives <= 0) {
+    throw new Error("Sin vidas disponibles");
   }
 
+  // 3) operación atómica: decrementar solo si lives > 0
+  const updateResult = await prisma.creator.updateMany({
+    where: { id: creatorId, lives: { gt: 0 }, isPremium: false },
+    data: {
+      lives: { decrement: 1 },
+      lastUpdated: new Date(),
+    },
+  });
+
+  if (updateResult.count === 0) {
+    // otra petición consumió la última vida, o es premium
+    // recargar creator para estado real y lanzar error
+    creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+    if (creator.isPremium) return creator;
+    throw new Error("Sin vidas disponibles (concurrency)");
+  }
+
+  // 4) traer el creator actualizado
+  creator = await prisma.creator.findUnique({ where: { id: creatorId } });
   return creator;
 }
 
-/**
- * Devuelve cuánto falta para la próxima vida
- */
 function minutesToNextLife(creator) {
-  if (creator.isPremium) return 0;
+  if (!creator || creator.isPremium) return 0;
   if (creator.lives >= creator.maxLives) return 0;
 
   const lastUpdated = creator.lastUpdated || new Date();
   const now = new Date();
   const diffMinutes = Math.floor((now - lastUpdated) / (1000 * 60));
-
-  const remaining = REFILL_INTERVAL_MINUTES - (diffMinutes % REFILL_INTERVAL_MINUTES);
-  return remaining > 0 ? remaining : 0;
+  const remain = REFILL_INTERVAL_MINUTES - (diffMinutes % REFILL_INTERVAL_MINUTES);
+  return remain > 0 ? remain : 0;
 }
 
-module.exports = {
-  REFILL_INTERVAL_MINUTES,
-  refillLives,
-  consumeLife,
-  minutesToNextLife,
-};
+module.exports = { REFILL_INTERVAL_MINUTES, refillLivesIfNeeded, consumeLife, minutesToNextLife };

@@ -1,7 +1,7 @@
 // routes/dashboardChats.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-const { refillLives, minutesToNextLife, consumeLife } = require("../utils/lives"); // 👈 import agregado
+const { refillLives, minutesToNextLife, consumeLife } = require("../utils/lives");
 
 async function dashboardChatsRoutes(fastify, opts) {
   /**
@@ -25,14 +25,14 @@ async function dashboardChatsRoutes(fastify, opts) {
         },
       });
 
-      if (!chat) {        
+      if (!chat) {
         return reply.code(404).send({ error: "Chat no encontrado" });
       }
 
       reply.send({
         id: chat.id,
         anonToken: chat.anonToken,
-        anonAlias: chat.anonAlias, // 👈 devolver alias fijo
+        anonAlias: chat.anonAlias, 
         messages: chat.messages.map((m) => ({
           id: m.id,
           from: m.from,
@@ -40,11 +40,9 @@ async function dashboardChatsRoutes(fastify, opts) {
           content: m.content,
           createdAt: m.createdAt,
         })),
-        // 👇 añadidos
         livesLeft: creator.lives,
         minutesToNextLife: minutesToNextLife(creator),
       });
-      
     } catch (err) {
       fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats/:chatId:", err);
       reply.code(500).send({ error: "Error obteniendo chat" });
@@ -58,24 +56,24 @@ async function dashboardChatsRoutes(fastify, opts) {
     try {
       const { dashboardId, chatId } = req.params;
       const { content } = req.body;
-  
+
       if (!content || content.trim() === "") {
         return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
       }
-  
+
       // ⚡ Revisa vidas y consume
       let updatedCreator;
       try {
         updatedCreator = await consumeLife(dashboardId);
       } catch (err) {
+        const creator = await prisma.creator.findUnique({ where: { id: dashboardId } });
         return reply.code(403).send({
           error: err.message,
-          minutesToNextLife: await minutesToNextLife(
-            await prisma.creator.findUnique({ where: { id: dashboardId } })
-          ),
+          minutesToNextLife: minutesToNextLife(creator),
+          livesLeft: creator?.lives ?? 0,
         });
       }
-  
+
       // Validar chat
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, creatorId: dashboardId },
@@ -83,7 +81,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!chat) {
         return reply.code(404).send({ error: "Chat no encontrado" });
       }
-  
+
       // Crear mensaje
       const msg = await prisma.chatMessage.create({
         data: {
@@ -92,7 +90,7 @@ async function dashboardChatsRoutes(fastify, opts) {
           content,
         },
       });
-  
+
       reply.code(201).send({
         id: msg.id,
         from: msg.from,
