@@ -17,7 +17,7 @@ async function dashboardChatsRoutes(fastify, opts) {
         },
       });
 
-      if (!chat) {
+      if (!chat) {        
         return reply.code(404).send({ error: "Chat no encontrado" });
       }
 
@@ -43,15 +43,30 @@ async function dashboardChatsRoutes(fastify, opts) {
   /**
    * Enviar mensaje como creador
    */
+  const { consumeLife, minutesToNextLife } = require("../utils/lives");
+
   fastify.post("/dashboard/:dashboardId/chats/:chatId/messages", async (req, reply) => {
     try {
       const { dashboardId, chatId } = req.params;
       const { content } = req.body;
-
+  
       if (!content || content.trim() === "") {
         return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
       }
-
+  
+      // ⚡ Revisa vidas y consume
+      let updatedCreator;
+      try {
+        updatedCreator = await consumeLife(dashboardId);
+      } catch (err) {
+        return reply.code(403).send({
+          error: err.message,
+          minutesToNextLife: await minutesToNextLife(
+            await prisma.creator.findUnique({ where: { id: dashboardId } })
+          ),
+        });
+      }
+  
       // Validar chat
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, creatorId: dashboardId },
@@ -59,7 +74,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!chat) {
         return reply.code(404).send({ error: "Chat no encontrado" });
       }
-
+  
       // Crear mensaje
       const msg = await prisma.chatMessage.create({
         data: {
@@ -68,18 +83,21 @@ async function dashboardChatsRoutes(fastify, opts) {
           content,
         },
       });
-
+  
       reply.code(201).send({
         id: msg.id,
         from: msg.from,
         content: msg.content,
         createdAt: msg.createdAt,
+        livesLeft: updatedCreator.lives,
+        minutesToNextLife: minutesToNextLife(updatedCreator),
       });
     } catch (err) {
       fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/messages:", err);
       reply.code(500).send({ error: "Error enviando mensaje" });
     }
   });
+  
 }
 
 module.exports = dashboardChatsRoutes;

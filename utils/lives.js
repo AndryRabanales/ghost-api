@@ -6,8 +6,6 @@ const REFILL_INTERVAL_MINUTES = 15;
 
 /**
  * Recalcula las vidas de un creador según el tiempo transcurrido
- * @param {Object} creator - objeto creator desde la base de datos
- * @returns {Promise<Object>} - creator actualizado
  */
 async function refillLives(creator) {
   if (creator.isPremium) return creator; // Premium tiene vidas infinitas
@@ -19,7 +17,6 @@ async function refillLives(creator) {
   const diffMinutes = Math.floor((now - lastUpdated) / (1000 * 60));
 
   if (diffMinutes >= REFILL_INTERVAL_MINUTES && lives < creator.maxLives) {
-    // cuántas vidas regenerar
     const toAdd = Math.min(
       Math.floor(diffMinutes / REFILL_INTERVAL_MINUTES),
       creator.maxLives - lives
@@ -38,8 +35,6 @@ async function refillLives(creator) {
 
 /**
  * Consume 1 vida si está disponible
- * @param {String} creatorId
- * @returns {Promise<Object>} - creator actualizado o error si no tiene vidas
  */
 async function consumeLife(creatorId) {
   let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
@@ -66,12 +61,9 @@ async function consumeLife(creatorId) {
 
 /**
  * Devuelve cuánto falta para la próxima vida
- * @param {Object} creator
- * @returns {Number} minutos restantes
  */
 function minutesToNextLife(creator) {
   if (creator.isPremium) return 0;
-
   if (creator.lives >= creator.maxLives) return 0;
 
   const lastUpdated = creator.lastUpdated || new Date();
