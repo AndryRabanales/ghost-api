@@ -18,24 +18,44 @@ const fastify = Fastify({ logger: true });
    ====================== */
 fastify.register(helmet);
 
-fastify.register(cors, {
-  origin: (origin, cb) => {
+ffastify.register(cors, (instance) => {
+  return (req, cb) => {
     const allowedOrigins = [
-      "http://localhost:3000",          // dev local
-      "https://ghost-web-two.vercel.app", // producción Vercel
+      "http://localhost:3000",
+      "https://ghost-web-two.vercel.app",
     ];
 
-    // permitir requests sin origin (como healthchecks de Render)
+    let origin = req.headers.origin;
+
+    // 👇 rutas públicas aceptan todos los orígenes
+    if (req.url.startsWith("/public")) {
+      cb(null, {
+        origin: true, // permite cualquiera
+        methods: ["GET", "POST", "PATCH", "OPTIONS"],
+        allowedHeaders: ["Content-Type"],
+      });
+      return;
+    }
+
+    // 👇 rutas privadas (dashboard, creators, etc.)
     if (!origin || allowedOrigins.includes(origin)) {
-      cb(null, true);
+      cb(null, {
+        origin: true,
+        methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+      });
     } else {
       cb(new Error("Not allowed by CORS"), false);
     }
-  },
+  };
+});
+
+// ✅ agregado: registrar también cors con fastify (sin tocar el tuyo)
+fastify.register(cors, {
+  origin: true,
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 });
-
 
 fastify.register(rateLimit, {
   max: 60, // 60 req/min por IP
@@ -54,6 +74,8 @@ fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
 fastify.register(publicRoutes); // 👈 aquí lo registras
+fastify.register(require("./routes/dashboardChats"));
+fastify.register(require("./routes/subscribe"));
 
 /* ======================
    Healthcheck
@@ -77,8 +99,5 @@ const start = async () => {
     process.exit(1);
   }
 };
-
-fastify.register(require("./routes/dashboardChats"));
-
 
 start();
