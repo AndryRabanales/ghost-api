@@ -52,16 +52,11 @@ async function dashboardChatsRoutes(fastify, opts) {
   /**
    * Enviar mensaje como creador
    */
-  fastify.post("/dashboard/:dashboardId/chats/:chatId/messages", async (req, reply) => {
+  fastify.post("/dashboard/:dashboardId/chats/:chatId/open", async (req, reply) => {
+    const { dashboardId, chatId } = req.params;
+  
     try {
-      const { dashboardId, chatId } = req.params;
-      const { content } = req.body;
-
-      if (!content || content.trim() === "") {
-        return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
-      }
-
-      // ⚡ Revisa vidas y consume
+      // ⚡ Consumir vida
       let updatedCreator;
       try {
         updatedCreator = await consumeLife(dashboardId);
@@ -73,37 +68,26 @@ async function dashboardChatsRoutes(fastify, opts) {
           livesLeft: creator?.lives ?? 0,
         });
       }
-
-      // Validar chat
+  
+      // Validar que el chat exista
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, creatorId: dashboardId },
       });
       if (!chat) {
         return reply.code(404).send({ error: "Chat no encontrado" });
       }
-
-      // Crear mensaje
-      const msg = await prisma.chatMessage.create({
-        data: {
-          chatId: chat.id,
-          from: "creator",
-          content,
-        },
-      });
-
-      reply.code(201).send({
-        id: msg.id,
-        from: msg.from,
-        content: msg.content,
-        createdAt: msg.createdAt,
+  
+      reply.send({
+        ok: true,
         livesLeft: updatedCreator.lives,
         minutesToNextLife: minutesToNextLife(updatedCreator),
       });
     } catch (err) {
-      fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/messages:", err);
-      reply.code(500).send({ error: "Error enviando mensaje" });
+      fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/open:", err);
+      reply.code(500).send({ error: "Error abriendo chat" });
     }
   });
+  
 }
 
 module.exports = dashboardChatsRoutes;
