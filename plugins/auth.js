@@ -11,9 +11,9 @@ module.exports = fp(async function (fastify, opts) {
   fastify.decorate("generateToken", (creator) => {
     return jwt.sign(
       {
-        id: creator.id,         // ID único del dashboard
-        publicId: creator.publicId, // ID público
-        isPremium: creator.isPremium, // si es premium o no
+        id: creator.id || null,           // ID único del dashboard
+        publicId: creator.publicId || null, // ID público
+        isPremium: creator.isPremium || false, // por si no está definido
       },
       JWT_SECRET,
       { expiresIn: "7d" } // ⏳ el token expira en 7 días
@@ -34,7 +34,7 @@ module.exports = fp(async function (fastify, opts) {
       const token = authHeader.split(" ")[1];
       const decoded = jwt.verify(token, JWT_SECRET);
 
-      // Guardamos el payload en request.user
+      // Guardamos el payload en request.user (siempre trae id y publicId)
       request.user = decoded; // { id, publicId, isPremium }
     } catch (err) {
       fastify.log.error("❌ Error de autenticación:", err.message);

@@ -97,36 +97,14 @@ async function creatorsRoutes(fastify, opts) {
   /**
    * Login por publicId → devuelve token
    */
-  fastify.post("/creators/login", async (req, reply) => {
-    try {
-      const { publicId } = req.body;
-
-      const creator = await prisma.creator.findUnique({ where: { publicId } });
-      if (!creator) {
-        return reply.code(404).send({ error: "Creator no encontrado" });
-      }
-
-      const token = fastify.generateToken(creator);
-      reply.send({ token, creator });
-    } catch (err) {
-      fastify.log.error(err);
-      reply.code(500).send({ error: "Error en login" });
-    }
-  });
-
-  /**
-   * Obtener mi perfil (requiere auth)
-   */
-  const { refillLives, minutesToNextLife } = require("../utils/lives");
 
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
-      // soportar que el token traiga id o publicId
       let creator = null;
   
-      if (req.user.id) {
+      if (req.user.id && req.user.id !== "null") {
         creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
-      } else if (req.user.publicId) {
+      } else if (req.user.publicId && req.user.publicId !== "null") {
         creator = await prisma.creator.findUnique({ where: { publicId: req.user.publicId } });
       }
   
@@ -134,7 +112,6 @@ async function creatorsRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creator no encontrado" });
       }
   
-      // regenerar vidas si corresponde
       const updated = await refillLives(creator);
   
       reply.send({
