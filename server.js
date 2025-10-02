@@ -133,7 +133,6 @@ fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(subscribe);
 fastify.register(require("./routes/premiumDummy")); // solo en dev
-fastify.register(require("./routes/premiumPayments")); // siempre
 
 
 /* ======================
