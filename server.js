@@ -47,10 +47,6 @@ fastify.register(cors, {
   allowedHeaders: ["Content-Type", "Authorization"],
 });
 
-  
-
-
-
 // Rate Limit → limita peticiones por minuto para evitar abusos
 fastify.register(rateLimit, { max: 60, timeWindow: "1 minute" });
 
@@ -62,24 +58,7 @@ fastify.register(websocket);
 // Mapa de rooms para agrupar sockets por chatId
 const chatRooms = new Map();
 
-// Ruta de ejemplo WebSocket (se mantiene igual para compatibilidad)
-fastify.get("/ws", { websocket: true }, (connection, req) => {
-  connection.socket.on("message", (message) => {
-    fastify.log.info(`📩 Mensaje recibido: ${message}`);
-
-    // Responder solo a este cliente
-    connection.socket.send(`Echo: ${message}`);
-
-    // 🔄 Broadcast a todos los clientes conectados (global)
-    fastify.websocketServer.clients.forEach((client) => {
-      if (client.readyState === 1) {
-        client.send(message.toString());
-      }
-    });
-  });
-});
-
-// Nueva ruta WebSocket con soporte de rooms por chatId
+// Ruta WebSocket con soporte de rooms por chatId (fusionada)
 fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const chatId = url.searchParams.get("chatId");
@@ -98,17 +77,33 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
 
   fastify.log.info(`🔌 Cliente conectado al chat ${chatId}`);
 
-  // Manejar mensajes dentro del room
-  connection.socket.on("message", (message) => {
-    fastify.log.info(`📩 [${chatId}] ${message}`);
+  // 👇 Manejo de mensajes con JSON
+  connection.socket.on("message", (raw) => {
+    fastify.log.info(`📩 [${chatId}] ${raw}`);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw.toString()); // intentar parsear JSON
+    } catch {
+      parsed = { content: raw.toString() }; // fallback si no es JSON
+    }
+
+    const payload = {
+      chatId,
+      from: parsed.from || "anon",
+      alias: parsed.alias || "Anónimo",
+      content: parsed.content,
+      createdAt: new Date(),
+    };
+
     for (const client of chatRooms.get(chatId)) {
       if (client.readyState === 1) {
-        client.send(message.toString());
+        client.send(JSON.stringify(payload)); // enviar como JSON
       }
     }
   });
 
-  // Al desconectarse, limpiar del room
+  // 🔻 Limpieza de conexiones al cerrar
   connection.socket.on("close", () => {
     fastify.log.info(`❌ Cliente salió del chat ${chatId}`);
     chatRooms.get(chatId).delete(connection.socket);
@@ -133,7 +128,6 @@ fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(subscribe);
 fastify.register(require("./routes/premiumDummy")); // solo en dev
-
 
 /* ======================
    Healthcheck (para probar que el server corre)

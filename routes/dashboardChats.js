@@ -1,7 +1,7 @@
 // routes/dashboardChats.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-const { refillLives, minutesToNextLife, consumeLife } = require("../utils/lives");
+const { refillLivesIfNeeded, minutesToNextLife, consumeLife } = require("../utils/lives");
 
 async function dashboardChatsRoutes(fastify, opts) {
   /**
@@ -22,7 +22,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!creator) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
-      creator = await refillLives(creator);
+      creator = await refillLivesIfNeeded(creator);
   
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, creatorId: dashboardId },
