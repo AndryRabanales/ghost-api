@@ -132,6 +132,8 @@ fastify.register(messagesRoutes);
 fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(subscribe);
+fastify.register(require("./routes/premium"));
+
 
 /* ======================
    Healthcheck (para probar que el server corre)
