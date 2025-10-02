@@ -116,12 +116,16 @@ fastify.post("/dashboard/:dashboardId/chats/:chatId/open", async (req, reply) =>
       }
 
       // Validar chat
-      const chat = await prisma.chat.findFirst({
-        where: { id: chatId, creatorId: dashboardId },
+      const chat = await prisma.chat.findUnique({
+        where: { id: chatId },
+        include: {
+          messages: {
+            orderBy: { createdAt: "asc" },
+          },
+          creator: { select: { name: true } },
+        },
       });
-      if (!chat) {
-        return reply.code(404).send({ error: "Chat no encontrado" });
-      }
+      
 
       // Crear mensaje
       const msg = await prisma.chatMessage.create({
