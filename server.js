@@ -53,65 +53,82 @@ fastify.register(rateLimit, { max: 60, timeWindow: "1 minute" });
 /* ======================
    WebSocket
    ====================== */
-fastify.register(websocket);
+/* ======================
+   WebSocket
+   ====================== */
+   fastify.register(websocket);
 
-// Mapa de rooms para agrupar sockets por chatId
-const chatRooms = new Map();
-
-// Ruta WebSocket con soporte de rooms por chatId (fusionada)
-fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const chatId = url.searchParams.get("chatId");
-
-  if (!chatId) {
-    connection.socket.send("❌ chatId requerido en la conexión");
-    connection.socket.close();
-    return;
-  }
-
-  // Agregar socket al room correspondiente
-  if (!chatRooms.has(chatId)) {
-    chatRooms.set(chatId, new Set());
-  }
-  chatRooms.get(chatId).add(connection.socket);
-
-  fastify.log.info(`🔌 Cliente conectado al chat ${chatId}`);
-
-  // 👇 Manejo de mensajes con JSON
-  connection.socket.on("message", (raw) => {
-    fastify.log.info(`📩 [${chatId}] ${raw}`);
-
-    let parsed;
-    try {
-      parsed = JSON.parse(raw.toString()); // intentar parsear JSON
-    } catch {
-      parsed = { content: raw.toString() }; // fallback si no es JSON
-    }
-
-    const payload = {
-      chatId,
-      from: parsed.from || "anon",
-      alias: parsed.alias || "Anónimo",
-      content: parsed.content,
-      createdAt: new Date(),
-    };
-
-    for (const client of chatRooms.get(chatId)) {
-      if (client.readyState === 1) {
-        client.send(JSON.stringify(payload)); // enviar como JSON
-      }
-    }
-  });
-
-  // 🔻 Limpieza de conexiones al cerrar
-  connection.socket.on("close", () => {
-    fastify.log.info(`❌ Cliente salió del chat ${chatId}`);
-    chatRooms.get(chatId).delete(connection.socket);
-    if (chatRooms.get(chatId).size === 0) {
-      chatRooms.delete(chatId);
-    }
-  });
-});
+   // Mapa de rooms para agrupar sockets por chatId
+   const chatRooms = new Map();
+   
+   // ✅ Ruta WebSocket con soporte de rooms por chatId
+   fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
+     try {
+       // Forzar keep-alive para Render
+       req.socket.setKeepAlive(true);
+   
+       const url = new URL(req.url, `http://${req.headers.host}`);
+       const chatId = url.searchParams.get("chatId");
+   
+       if (!chatId) {
+         connection.socket.send("❌ chatId requerido en la conexión");
+         connection.socket.close();
+         return;
+       }
+   
+       if (!chatRooms.has(chatId)) {
+         chatRooms.set(chatId, new Set());
+       }
+       chatRooms.get(chatId).add(connection.socket);
+   
+       fastify.log.info(`🔌 Cliente conectado al chat ${chatId}`);
+   
+       // 👇 Manejo de mensajes con JSON seguro
+       connection.socket.on("message", (raw) => {
+         let parsed;
+         try {
+           parsed = JSON.parse(raw.toString());
+         } catch {
+           parsed = { content: raw.toString() };
+         }
+   
+         const payload = {
+           chatId,
+           from: parsed.from || "anon",
+           alias: parsed.alias || "Anónimo",
+           content: parsed.content,
+           createdAt: new Date(),
+         };
+   
+         fastify.log.info(`📩 Mensaje en [${chatId}]: ${JSON.stringify(payload)}`);
+   
+         for (const client of chatRooms.get(chatId)) {
+           if (client.readyState === 1) {
+             client.send(JSON.stringify(payload));
+           }
+         }
+       });
+   
+       // ✅ Manejo de desconexión
+       connection.socket.on("close", () => {
+         fastify.log.info(`❌ Cliente salió del chat ${chatId}`);
+         chatRooms.get(chatId).delete(connection.socket);
+         if (chatRooms.get(chatId).size === 0) {
+           chatRooms.delete(chatId);
+         }
+       });
+   
+       // ✅ Manejo de errores
+       connection.socket.on("error", (err) => {
+         fastify.log.error(`⚠️ Error WS en chat ${chatId}:`, err);
+       });
+   
+     } catch (err) {
+       fastify.log.error("❌ Error inicializando WebSocket:", err);
+       connection.socket.close();
+     }
+   });
+   
 
 /* ======================
    Plugins personalizados
