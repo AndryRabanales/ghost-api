@@ -80,3 +80,20 @@ model ChatMessage {
 
   chat      Chat     @relation(fields: [chatId], references: [id])
 }
+
+
+model Payment {
+  id                String   @id @default(cuid())
+  provider          String
+  providerPaymentId String?  @unique
+  creatorId         String
+  amount            Float
+  currency          String
+  status            String
+  idempotencyKey    String   @unique
+  raw               Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([creatorId])
+}
