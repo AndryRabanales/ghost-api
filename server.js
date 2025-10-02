@@ -38,7 +38,7 @@ fastify.register(cors, {
       "https://ghost-web-two.vercel.app",
     ];
     if (!origin || allowedOrigins.includes(origin) || origin.includes("vercel.app")) {
-      cb(null, true);
+      cb(null, true); // ✅ permitido
       return;
     }
     cb(new Error("Not allowed"), false);
@@ -49,33 +49,6 @@ fastify.register(cors, {
 
   
 
-    const origin = req.headers.origin;
-
-    // ✅ Rutas públicas aceptan todos los orígenes
-    if (req.url.startsWith("/public")) {
-      cb(null, {
-        origin: true,
-        methods: ["GET", "POST", "PATCH", "OPTIONS"],
-        allowedHeaders: ["Content-Type"],
-      });
-      return;
-    }
-
-    
-    
-
-    // ✅ Rutas privadas aceptan solo los dominios permitidos
-    if (!origin || allowedOrigins.includes(origin)) {
-      cb(null, {
-        origin: true,
-        methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-      });
-    } else {
-      cb(new Error("Not allowed by CORS"), false);
-    }
-  };
-});
 
 
 // Rate Limit → limita peticiones por minuto para evitar abusos
