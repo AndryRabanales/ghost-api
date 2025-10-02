@@ -50,7 +50,7 @@ async function dashboardChatsRoutes(fastify, opts) {
   });
 
   /**
-   * Enviar mensaje como creador
+   * Abrir un chat (consume 1 vida)
    */
   fastify.post("/dashboard/:dashboardId/chats/:chatId/open", async (req, reply) => {
     const { dashboardId, chatId } = req.params;
@@ -87,7 +87,47 @@ async function dashboardChatsRoutes(fastify, opts) {
       reply.code(500).send({ error: "Error abriendo chat" });
     }
   });
-  
+
+  /**
+   * Enviar mensaje como creador (NO gasta vidas)
+   */
+  fastify.post("/dashboard/:dashboardId/chats/:chatId/messages", async (req, reply) => {
+    try {
+      const { dashboardId, chatId } = req.params;
+      const { content } = req.body;
+
+      if (!content || content.trim() === "") {
+        return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
+      }
+
+      // Validar chat
+      const chat = await prisma.chat.findFirst({
+        where: { id: chatId, creatorId: dashboardId },
+      });
+      if (!chat) {
+        return reply.code(404).send({ error: "Chat no encontrado" });
+      }
+
+      // Crear mensaje
+      const msg = await prisma.chatMessage.create({
+        data: {
+          chatId: chat.id,
+          from: "creator",
+          content,
+        },
+      });
+
+      reply.code(201).send({
+        id: msg.id,
+        from: msg.from,
+        content: msg.content,
+        createdAt: msg.createdAt,
+      });
+    } catch (err) {
+      fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/messages:", err);
+      reply.code(500).send({ error: "Error enviando mensaje" });
+    }
+  });
 }
 
 module.exports = dashboardChatsRoutes;
