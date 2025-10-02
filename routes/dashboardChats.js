@@ -52,14 +52,32 @@ async function dashboardChatsRoutes(fastify, opts) {
   /**
    * Abrir un chat (consume 1 vida)
    */
-  fastify.post("/dashboard/:dashboardId/chats/:chatId/open", async (req, reply) => {
-    const { dashboardId, chatId } = req.params;
-  
-    try {
-      // ⚡ Consumir vida
-      let updatedCreator;
+/**
+ * Abrir un chat (consume 1 vida solo si es nuevo)
+ */
+fastify.post("/dashboard/:dashboardId/chats/:chatId/open", async (req, reply) => {
+  const { dashboardId, chatId } = req.params;
+
+  try {
+    // Verificar que el chat exista
+    let chat = await prisma.chat.findFirst({
+      where: { id: chatId, creatorId: dashboardId },
+    });
+
+    if (!chat) {
+      return reply.code(404).send({ error: "Chat no encontrado" });
+    }
+
+    let updatedCreator;
+
+    // ⚡ Si nunca se abrió, consumir vida
+    if (!chat.isOpened) {
       try {
         updatedCreator = await consumeLife(dashboardId);
+        chat = await prisma.chat.update({
+          where: { id: chatId },
+          data: { isOpened: true },
+        });
       } catch (err) {
         const creator = await prisma.creator.findUnique({ where: { id: dashboardId } });
         return reply.code(403).send({
@@ -68,25 +86,22 @@ async function dashboardChatsRoutes(fastify, opts) {
           livesLeft: creator?.lives ?? 0,
         });
       }
-  
-      // Validar que el chat exista
-      const chat = await prisma.chat.findFirst({
-        where: { id: chatId, creatorId: dashboardId },
-      });
-      if (!chat) {
-        return reply.code(404).send({ error: "Chat no encontrado" });
-      }
-  
-      reply.send({
-        ok: true,
-        livesLeft: updatedCreator.lives,
-        minutesToNextLife: minutesToNextLife(updatedCreator),
-      });
-    } catch (err) {
-      fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/open:", err);
-      reply.code(500).send({ error: "Error abriendo chat" });
+    } else {
+      // Ya estaba abierto → no gastar vidas otra vez
+      updatedCreator = await prisma.creator.findUnique({ where: { id: dashboardId } });
     }
-  });
+
+    reply.send({
+      ok: true,
+      livesLeft: updatedCreator.lives,
+      minutesToNextLife: minutesToNextLife(updatedCreator),
+    });
+  } catch (err) {
+    fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/open:", err);
+    reply.code(500).send({ error: "Error abriendo chat" });
+  }
+});
+
 
   /**
    * Enviar mensaje como creador (NO gasta vidas)

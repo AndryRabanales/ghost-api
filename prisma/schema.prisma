@@ -63,6 +63,7 @@ model Chat {
   anonToken  String       // identifica al anónimo en este chat
   anonAlias  String? 
   createdAt  DateTime      @default(now())
+  isOpened   Boolean  @default(false) 
 
   creator    Creator       @relation(fields: [creatorId], references: [id])
   messages   ChatMessage[]
