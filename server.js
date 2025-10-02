@@ -31,12 +31,21 @@ const fastify = Fastify({ logger: true });
 fastify.register(helmet);
 
 // CORS → controla qué orígenes pueden acceder a la API
-fastify.register(cors, (instance) => {
-  return (req, cb) => {
+fastify.register(cors, {
+  origin: (origin, cb) => {
     const allowedOrigins = [
-      "http://localhost:3000",              // Frontend local
-      "https://ghost-web-two.vercel.app",   // Frontend en Vercel
+      "http://localhost:3000",
+      "https://ghost-web-two.vercel.app",
     ];
+    if (!origin || allowedOrigins.includes(origin) || origin.includes("vercel.app")) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Not allowed"), false);
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+});
 
   
 
@@ -66,15 +75,6 @@ fastify.register(cors, (instance) => {
       cb(new Error("Not allowed by CORS"), false);
     }
   };
-});
-
-fastify.options("/*", (req, reply) => {
-  reply
-    .header("Access-Control-Allow-Origin", "*")
-    .header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-    .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-    .code(204)
-    .send();
 });
 
 
