@@ -52,14 +52,7 @@ fastify.register(cors, (instance) => {
       return;
     }
 
-    fastify.options("/*", (req, reply) => {
-      reply
-        .header("Access-Control-Allow-Origin", "*")
-        .header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-        .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        .code(204)
-        .send();
-    });
+    
     
 
     // ✅ Rutas privadas aceptan solo los dominios permitidos
@@ -74,6 +67,16 @@ fastify.register(cors, (instance) => {
     }
   };
 });
+
+fastify.options("/*", (req, reply) => {
+  reply
+    .header("Access-Control-Allow-Origin", "*")
+    .header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+    .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    .code(204)
+    .send();
+});
+
 
 // Rate Limit → limita peticiones por minuto para evitar abusos
 fastify.register(rateLimit, { max: 60, timeWindow: "1 minute" });
