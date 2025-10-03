@@ -98,13 +98,16 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     // ✅ Fallback seguro (no depende de req.headers.host)
     let url;
     try {
-      url = new URL(req.url, "http://localhost");
+      // Railway a veces manda req.url vacío o raro, así evitamos que truene
+      const rawUrl = (req.url && req.url.startsWith("/")) ? req.url : "/ws/chat";
+      url = new URL(rawUrl, "http://localhost");
     } catch (e) {
-      fastify.log.error({ err: e, url: req.url }, "❌ Error parseando URL del WS");
+      fastify.log.error({ err: e, rawUrl: req.url }, "❌ Error parseando URL del WS");
       try { connection.socket.send(JSON.stringify({ type: "error", error: "bad_url" })); } catch {}
       try { connection.socket.close(); } catch {}
       return;
     }
+    
 
     const chatId = url.searchParams.get("chatId");
     const anonToken = url.searchParams.get("anonToken") || null;
@@ -397,7 +400,7 @@ const shutdown = async (signal) => {
     fastify.log.error("Error en shutdown:", e);
     process.exit(1);
   }
-};
+};8
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
