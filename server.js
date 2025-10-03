@@ -69,7 +69,9 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
   try {
     req.socket.setKeepAlive(true);
 
-    const url = new URL(req.url, `http://${req.headers.host}`);
+// ✅ Fallback seguro (no depende de req.headers.host)
+const url = new URL(req.url, "http://localhost");
+
     const chatId = url.searchParams.get("chatId");
     const anonToken = url.searchParams.get("anonToken") || null;
     const origin = req.headers.origin || "";
