@@ -154,19 +154,19 @@ fastify.get("/", async () => ({ status: "API ok" }));
 /* ======================
    Start (levantar servidor)
    ====================== */
-const start = async () => {
-  try {
-    await fastify.listen({
-      port: process.env.PORT || 3001,
-      host: "0.0.0.0",
-    });
-    fastify.log.info(
-      `🚀 Servidor corriendo en puerto ${process.env.PORT || 3001}`
-    );
-  } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
-  }
-};
-
-start();
+   const start = async () => {
+    try {
+      const port = process.env.PORT || 8080; // 👈 Railway asigna PORT automáticamente
+      await fastify.listen({
+        port,
+        host: "0.0.0.0",
+      });
+      fastify.log.info(`🚀 Servidor corriendo en puerto ${port}`);
+    } catch (err) {
+      fastify.log.error(err);
+      process.exit(1);
+    }
+  };
+  
+  start();
+  
