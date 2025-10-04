@@ -126,6 +126,12 @@ const broadcastMessage = (chatId, payload) => {
  * Ruta principal para la conexión WebSocket.
  * Maneja el ciclo de vida completo de una conexión de cliente.
  */
+// ... todo tu código anterior a la ruta /ws/chat ...
+
+/**
+ * Ruta principal para la conexión WebSocket.
+ * Maneja el ciclo de vida completo de una conexión de cliente.
+ */
 fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -136,7 +142,9 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
 
     // 1. Validación de Origen (Seguridad)
     const allowedOrigins = ["http://localhost:3000", "https://ghost-web-two.vercel.app"];
-    if (!allowedOrigins.includes(origin)) {
+    // Permitimos explícitamente el origen vacío para pruebas locales con herramientas que no envían la cabecera.
+    // En producción, podrías querer quitar `origin === ""` de la condición.
+    if (!allowedOrigins.includes(origin) && origin !== "") {
       fastify.log.warn(`Conexión WS rechazada de origen no permitido: ${origin}`);
       connection.socket.send(JSON.stringify({ type: "error", error: "origin_not_allowed" }));
       connection.socket.close();
@@ -160,7 +168,7 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
       closed: false,
     });
 
-    fastify.log.info(`🔌 Cliente conectado: chatId=${chatId}, anonToken=${anonToken}, ip=${ip}`);
+    fastify.log.info(`🔌 Cliente conectado: chatId=${chatId}, anonToken=${anonToken}, ip=${ip}, origin=${origin || "ninguno"}`);
 
     // 4. Enviar historial de chat al nuevo cliente
     if (chatHistory.has(chatId)) {
@@ -180,19 +188,17 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     const pingInterval = setInterval(() => {
       const state = socketState.get(connection.socket);
       if (state && !state.closed) {
-        // Si el cliente no ha respondido al último ping en 60 segundos, considerarlo desconectado.
         if (Date.now() - state.lastPongAt > 60000) {
           fastify.log.warn(`Cliente sin respuesta al ping, terminando conexión: chatId=${chatId}`);
           clearInterval(pingInterval);
-          return connection.socket.terminate(); // terminate() es más abrupto que close()
+          return connection.socket.terminate();
         }
-        connection.socket.ping(); // Envía un ping al cliente
+        connection.socket.ping();
       } else {
         clearInterval(pingInterval);
       }
     }, 30000);
-
-    // El cliente responde con un 'pong', actualizamos su estado.
+    
     connection.socket.on("pong", () => {
       const state = socketState.get(connection.socket);
       if (state) {
@@ -204,20 +210,16 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     connection.socket.on("message", (rawMessage) => {
       const state = socketState.get(connection.socket);
       if (!state || state.closed) return;
-
       try {
         const message = JSON.parse(rawMessage.toString());
-        // Validar que el mensaje tenga contenido
-        if (!message.content || String(message.content).trim() === "") {
-          return;
-        }
+        if (!message.content || String(message.content).trim() === "") return;
 
         const payload = {
           type: "message",
           chatId,
           from: message.from || anonToken,
           alias: String(message.alias || "Anónimo").slice(0, 50),
-          content: String(message.content).slice(0, 4000), // Sanitizar y limitar longitud
+          content: String(message.content).slice(0, 4000),
           createdAt: new Date(),
         };
 
@@ -226,29 +228,26 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
         
       } catch (error) {
         fastify.log.error(`Error procesando mensaje WS malformado: ${error.message}`);
-        // Opcional: notificar al cliente sobre el error
-        // connection.socket.send(JSON.stringify({ type: "error", error: "invalid_message_format" }));
       }
     });
 
     // 8. Limpieza al cerrar la conexión
     const cleanup = () => {
-        const state = socketState.get(connection.socket);
-        if (state && !state.closed) {
-            state.closed = true;
-            const room = chatRooms.get(chatId);
-            if (room) {
-                room.delete(connection.socket);
-                // Si la sala queda vacía, la eliminamos para liberar memoria
-                if (room.size === 0) {
-                    chatRooms.delete(chatId);
-                    chatHistory.delete(chatId); // También limpiar el historial
-                    fastify.log.info(`🚪 Sala de chat vacía y cerrada: ${chatId}`);
-                }
-            }
-            clearInterval(pingInterval);
-            fastify.log.info(`❌ Cliente desconectado: chatId=${chatId}`);
+      const state = socketState.get(connection.socket);
+      if (state && !state.closed) {
+        state.closed = true;
+        const room = chatRooms.get(chatId);
+        if (room) {
+          room.delete(connection.socket);
+          if (room.size === 0) {
+            chatRooms.delete(chatId);
+            chatHistory.delete(chatId);
+            fastify.log.info(`🚪 Sala de chat vacía y cerrada: ${chatId}`);
+          }
         }
+        clearInterval(pingInterval);
+        fastify.log.info(`❌ Cliente desconectado: chatId=${chatId}`);
+      }
     };
     
     connection.socket.on("close", cleanup);
@@ -259,14 +258,25 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
 
   } catch (err) {
     fastify.log.error({ err }, "❌ Error fatal al inicializar WebSocket");
+    
+    // ----- INICIO DE LA CORRECCIÓN -----
+    // En este punto, el estado de 'connection' es incierto.
+    // Es más seguro simplemente intentar cerrar la conexión si existe,
+    // sin intentar enviar un mensaje que podría fallar.
     if (connection && connection.socket) {
-        try {
-            connection.socket.send(JSON.stringify({ type: "error", error: "initialization_failed" }));
-            connection.socket.close();
-        } catch {}
+      try {
+        // Cierra con un código de error estándar para "condición inesperada"
+        connection.socket.close(1011, "Internal server error");
+      } catch (closeErr) {
+        // Si incluso cerrar falla, lo registramos pero evitamos que el programa crashee.
+        fastify.log.error({ closeErr }, "Error adicional al intentar cerrar el socket fallido.");
+      }
     }
+    // ----- FIN DE LA CORRECCIÓN -----
   }
 });
+
+// ... el resto de tu server.js ...
 
 
 // ===============================================================
