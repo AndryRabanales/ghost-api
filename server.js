@@ -89,26 +89,28 @@ const socketState = new WeakMap();
 /* ======================
    Ruta WebSocket con soporte de rooms
    ====================== */
-fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
-  try {
-    // 🔎 Log del handshake para diagnosticar (no es ruidoso en exceso)
-    fastify.log.info({ url: req.url, headers: req.headers }, "🔎 Handshake WS recibido");
+// Obtener parámetros
+const chatId = url.searchParams.get("chatId") || "default";
 
-    // Mantener viva la conexión en Node
-    try { req.socket.setKeepAlive(true); } catch {}
+// Confirmación inicial
+fastify.log.info(`✅ Cliente WS conectado en chat=${chatId}`);
+connection.socket.send(JSON.stringify({
+  type: "welcome",
+  chatId,
+  msg: "Conexión WebSocket establecida 🚀"
+}));
 
-    // ✅ Fallback seguro (no depende de req.headers.host)
-    let url;
-    try {
-      // Railway a veces manda req.url vacío o raro, así evitamos que truene
-      const rawUrl = (req.url && req.url.startsWith("/")) ? req.url : "/ws/chat";
-      url = new URL(rawUrl, "http://localhost");
-    } catch (e) {
-      fastify.log.error({ err: e, rawUrl: req.url }, "❌ Error parseando URL del WS");
-      try { connection.socket.send(JSON.stringify({ type: "error", error: "bad_url" })); } catch {}
-      try { connection.socket.close(); } catch {}
-      return;
-    }
+// Manejar mensajes entrantes
+connection.socket.on("message", (msg) => {
+  fastify.log.info(`📩 Mensaje recibido en ${chatId}: ${msg}`);
+  connection.socket.send(`Echo: ${msg}`); // responder
+});
+
+// Manejar cierre
+connection.socket.on("close", () => {
+  fastify.log.info(`❌ Cliente desconectado de chat=${chatId}`);
+});
+
     
 
     const chatId = url.searchParams.get("chatId");
