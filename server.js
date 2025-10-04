@@ -70,10 +70,11 @@ const generateAnonToken = () => crypto.randomBytes(8).toString("hex");
 const broadcastMessage = (chatId, payload) => {
   const room = chatRooms.get(chatId);
   if (!room) return;
-  for (const client of room) {
+  const message = JSON.stringify(payload);
+  for (const clientSocket of room) {
     try {
-      if (client.readyState === 1) {
-        client.send(JSON.stringify(payload));
+      if (clientSocket.readyState === 1) { // 1 === WebSocket.OPEN
+        clientSocket.send(message);
       }
     } catch (err) {
       fastify.log.error(`Error enviando mensaje a un cliente en la sala ${chatId}:`, err);
@@ -90,6 +91,9 @@ const broadcastMessage = (chatId, payload) => {
 };
 
 fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
+  // El objeto 'connection' es un stream, el socket real está en 'connection.socket'
+  const { socket } = connection;
+
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const chatId = url.searchParams.get("chatId") || "default";
@@ -100,8 +104,8 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     const allowedOrigins = ["http://localhost:3000", "https://ghost-web-two.vercel.app"];
     if (!allowedOrigins.includes(origin) && origin !== "") {
       fastify.log.warn(`Conexión WS rechazada de origen no permitido: ${origin}`);
-      connection.send(JSON.stringify({ type: "error", error: "origin_not_allowed" }));
-      connection.close();
+      socket.send(JSON.stringify({ type: "error", error: "origin_not_allowed" }));
+      socket.close();
       return;
     }
 
@@ -109,9 +113,9 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
       chatRooms.set(chatId, new Set());
     }
     const room = chatRooms.get(chatId);
-    room.add(connection);
+    room.add(socket);
 
-    socketState.set(connection, {
+    socketState.set(socket, {
       chatId,
       anonToken,
       messagesCount: 0,
@@ -123,10 +127,10 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     fastify.log.info(`🔌 Cliente conectado: chatId=${chatId}, anonToken=${anonToken}, ip=${ip}, origin=${origin || "ninguno"}`);
 
     if (chatHistory.has(chatId)) {
-      connection.send(JSON.stringify({ type: "history", messages: chatHistory.get(chatId) }));
+      socket.send(JSON.stringify({ type: "history", messages: chatHistory.get(chatId) }));
     }
 
-    connection.send(JSON.stringify({
+    socket.send(JSON.stringify({
       type: "welcome",
       chatId,
       anonToken,
@@ -135,28 +139,28 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     }));
 
     const pingInterval = setInterval(() => {
-      const state = socketState.get(connection);
+      const state = socketState.get(socket);
       if (state && !state.closed) {
         if (Date.now() - state.lastPongAt > 60000) {
           fastify.log.warn(`Cliente sin respuesta al ping, terminando conexión: chatId=${chatId}`);
           clearInterval(pingInterval);
-          return connection.terminate();
+          return socket.terminate();
         }
-        connection.ping();
+        socket.ping();
       } else {
         clearInterval(pingInterval);
       }
     }, 30000);
     
-    connection.on("pong", () => {
-      const state = socketState.get(connection);
+    socket.on("pong", () => {
+      const state = socketState.get(socket);
       if (state) {
         state.lastPongAt = Date.now();
       }
     });
 
-    connection.on("message", (rawMessage) => {
-      const state = socketState.get(connection);
+    socket.on("message", (rawMessage) => {
+      const state = socketState.get(socket);
       if (!state || state.closed) return;
       try {
         const message = JSON.parse(rawMessage.toString());
@@ -180,12 +184,12 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
     });
 
     const cleanup = () => {
-      const state = socketState.get(connection);
+      const state = socketState.get(socket);
       if (state && !state.closed) {
         state.closed = true;
         const room = chatRooms.get(chatId);
         if (room) {
-          room.delete(connection);
+          room.delete(socket);
           if (room.size === 0) {
             chatRooms.delete(chatId);
             chatHistory.delete(chatId);
@@ -197,17 +201,17 @@ fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
       }
     };
     
-    connection.on("close", cleanup);
-    connection.on("error", (err) => {
+    socket.on("close", cleanup);
+    socket.on("error", (err) => {
       fastify.log.error({ err }, `⚠️ Error en conexión WS, cerrando: chatId=${chatId}`);
       cleanup();
     });
 
   } catch (err) {
     fastify.log.error({ err }, "❌ Error fatal al inicializar WebSocket");
-    if (connection) {
+    if (socket) {
       try {
-        connection.close(1011, "Internal server error");
+        socket.close(1011, "Internal server error");
       } catch (closeErr) {
         fastify.log.error({ closeErr }, "Error adicional al intentar cerrar el socket fallido.");
       }
