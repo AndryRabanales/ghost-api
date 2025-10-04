@@ -6,6 +6,7 @@ const cors = require("@fastify/cors");
 const helmet = require("@fastify/helmet");
 const rateLimit = require("@fastify/rate-limit");
 const websocket = require("@fastify/websocket");
+const crypto = require("crypto");
 
 // ======================
 // Plugins y Rutas
@@ -20,16 +21,12 @@ const subscribe = require("./routes/subscribe");
 
 // ======================
 // Crear instancia Fastify
-// ⚠️ trustProxy habilitado: Railway usa proxy y manda x-forwarded-*
 // ======================
-const fastify = Fastify({
-  logger: true,
-  trustProxy: true,
-});
+const fastify = Fastify({ logger: true, trustProxy: true });
 
-/* ======================
-   Seguridad y Middlewares
-   ====================== */
+// ======================
+// Seguridad y Middlewares
+// ======================
 fastify.register(helmet);
 
 fastify.register(cors, {
@@ -50,252 +47,192 @@ fastify.register(cors, {
 
 fastify.register(rateLimit, { max: 60, timeWindow: "1 minute" });
 
-/* ======================
-   Hooks globales (Railway + WS)
-   - Reafirma el upgrade para proxies
-   - Añade no-cache y keep-alive
-   ====================== */
-   fastify.addHook("onRequest", (req, reply, done) => {
-    if (req.headers.upgrade && String(req.headers.upgrade).toLowerCase() === "websocket") {
-      try {
-        reply.raw.setHeader("Connection", "Upgrade");
-        reply.raw.setHeader("Upgrade", "websocket");
-        reply.raw.setHeader("Sec-WebSocket-Version", "13");
-        reply.raw.setHeader("Cache-Control", "no-cache");
-        reply.raw.setHeader("Pragma", "no-cache");
-      } catch (e) {
-        fastify.log.error(e, "❌ Error configurando headers WS");
-      }
+// ======================
+// Hooks globales
+// ======================
+fastify.addHook("onRequest", (req, reply, done) => {
+  if (req.headers.upgrade && String(req.headers.upgrade).toLowerCase() === "websocket") {
+    try {
+      reply.raw.setHeader("Connection", "Upgrade");
+      reply.raw.setHeader("Upgrade", "websocket");
+      reply.raw.setHeader("Sec-WebSocket-Version", "13");
+      reply.raw.setHeader("Cache-Control", "no-cache");
+      reply.raw.setHeader("Pragma", "no-cache");
+    } catch (e) {
+      fastify.log.error(e, "❌ Error configurando headers WS");
     }
-    done();
-  });
-  
+  }
+  done();
+});
 
-/* ======================
-   WebSocket
-   - Ojo: perMessageDeflate desactivado; a veces rompe con proxies
-   ====================== */
+// ======================
+// WebSocket
+// ======================
 fastify.register(websocket, {
   options: {
     clientTracking: true,
     perMessageDeflate: false,
-    maxPayload: 1024 * 1024, // 1 MB por si acaso
+    maxPayload: 1024 * 1024,
   },
 });
 
-const chatRooms = new Map();
-const socketState = new WeakMap();
+// ======================
+// Estructuras WS
+// ======================
+const chatRooms = new Map(); // Map<chatId, Set<ws>>
+const socketState = new WeakMap(); // WeakMap<ws, {chatId, anonToken, messagesCount, createdAt, lastPongAt, closed}>
+const chatHistory = new Map(); // Map<chatId, Array<{from, alias, content, createdAt}>>
 
-/* ======================
-   Ruta WebSocket con soporte de rooms
-   ====================== */
-// Obtener parámetros
-const chatId = url.searchParams.get("chatId") || "default";
+// ======================
+// Funciones auxiliares
+// ======================
+const generateAnonToken = () => crypto.randomBytes(8).toString("hex");
 
-// Confirmación inicial
-fastify.log.info(`✅ Cliente WS conectado en chat=${chatId}`);
-connection.socket.send(JSON.stringify({
-  type: "welcome",
-  chatId,
-  msg: "Conexión WebSocket establecida 🚀"
-}));
+const broadcastMessage = (chatId, payload) => {
+  const clients = chatRooms.get(chatId) || new Set();
+  for (const client of clients) {
+    try {
+      if (client.readyState === 1) client.send(JSON.stringify(payload));
+    } catch {}
+  }
+  // Guardar en historial (últimos 100 mensajes)
+  if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
+  const history = chatHistory.get(chatId);
+  history.push(payload);
+  if (history.length > 100) history.shift();
+};
 
-// Manejar mensajes entrantes
-connection.socket.on("message", (msg) => {
-  fastify.log.info(`📩 Mensaje recibido en ${chatId}: ${msg}`);
-  connection.socket.send(`Echo: ${msg}`); // responder
-});
-
-// Manejar cierre
-connection.socket.on("close", () => {
-  fastify.log.info(`❌ Cliente desconectado de chat=${chatId}`);
-});
-
-    const anonToken = url.searchParams.get("anonToken") || null;
-
-    // Origen & Proto (útiles detrás de proxy)
+// ======================
+// WS Chat con rooms, reconexión y historial
+// ======================
+fastify.get("/ws/chat", { websocket: true }, (connection, req) => {
+  try {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const chatId = url.searchParams.get("chatId") || "default";
+    const anonToken = url.searchParams.get("anonToken") || generateAnonToken();
     const origin = req.headers.origin || "";
     const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
     const proto = req.headers["x-forwarded-proto"] || (req.protocol || "http");
 
-    // 🧰 Aviso suave si no viene HTTPS en proxy (solo log)
-    if (proto !== "https") {
-      fastify.log.warn({ proto }, "⚠️ x-forwarded-proto no es https (proxy podría no estar en TLS)");
-    }
-
-    // ✅ Validación suave de Origin (mismo allowlist que CORS)
-    const allowedOrigins = [
-      "http://localhost:3000",
-      "https://ghost-web-two.vercel.app",
-    ];
-    if (
-      origin &&
-      !(allowedOrigins.includes(origin) || (typeof origin === "string" && origin.includes("vercel.app")))
-    ) {
-      fastify.log.warn({ origin }, "❌ WS origin no permitido, cerrando conexión.");
+    // ✅ Validación de origin
+    const allowedOrigins = ["http://localhost:3000","https://ghost-web-two.vercel.app"];
+    if (origin && !(allowedOrigins.includes(origin) || origin.includes("vercel.app"))) {
       try { connection.socket.send(JSON.stringify({ type: "error", error: "origin_not_allowed" })); } catch {}
-      try { connection.socket.close(); } catch {}
+      connection.socket.close();
       return;
     }
 
-    if (!chatId) {
-      try { connection.socket.send("❌ chatId requerido en la conexión"); } catch {}
-      try { connection.socket.close(); } catch {}
-      return;
-    }
-
-    if (!chatRooms.has(chatId)) {
-      chatRooms.set(chatId, new Set());
-    }
+    if (!chatRooms.has(chatId)) chatRooms.set(chatId, new Set());
     chatRooms.get(chatId).add(connection.socket);
 
     socketState.set(connection.socket, {
       chatId,
-      anonToken: anonToken || undefined,
-      lastPongAt: Date.now(),
+      anonToken,
       messagesCount: 0,
       createdAt: Date.now(),
+      lastPongAt: Date.now(),
       closed: false,
     });
 
-    fastify.log.info(`🔌 Cliente conectado chat=${chatId} ip=${ip} proto=${proto} origin=${origin || "none"} anon=${anonToken || "none"}`);
+    fastify.log.info(`🔌 Cliente conectado chat=${chatId} ip=${ip} proto=${proto} origin=${origin || "none"} anon=${anonToken}`);
 
-    // Mensaje de bienvenida/diagnóstico
-    try {
-      connection.socket.send(
-        JSON.stringify({
-          type: "welcome",
-          chatId,
-          anonToken: anonToken || null,
-          serverTime: new Date().toISOString(),
-          msg: "WS conectado",
-        })
-      );
-    } catch (e) {
-      fastify.log.warn({ err: e }, "No se pudo enviar mensaje de welcome");
+    // Enviar historial al nuevo cliente
+    if (chatHistory.has(chatId)) {
+      const history = chatHistory.get(chatId);
+      try { connection.socket.send(JSON.stringify({ type: "history", messages: history })); } catch {}
     }
 
-    // 🫀 Ping/Pong keep-alive (Railway corta inactivos)
+    // Mensaje de bienvenida
+    connection.socket.send(JSON.stringify({
+      type: "welcome",
+      chatId,
+      anonToken,
+      serverTime: new Date().toISOString(),
+      msg: "WS conectado 🚀",
+    }));
+
+    // Ping/Pong keep-alive
     const PING_INTERVAL_MS = 25_000;
     const PONG_TIMEOUT_MS = 60_000;
+
     const pingTimer = setInterval(() => {
       const st = socketState.get(connection.socket);
       if (!st || st.closed) return;
-
-      // cerrar si pasó demasiado sin pong
       if (Date.now() - st.lastPongAt > PONG_TIMEOUT_MS) {
         fastify.log.warn(`⏱️ WS sin pong, cerrando chat=${chatId}`);
-        try { connection.socket.close(); } catch {}
+        connection.socket.close();
         clearInterval(pingTimer);
-        return;
+      } else {
+        try { connection.socket.ping?.(); } catch {}
+        try { connection.socket.send(JSON.stringify({ type: "ping", t: Date.now() })); } catch {}
       }
-
-      // Intento nativo (si lo soporta)
-      try { connection.socket.ping?.(); } catch {}
-      // Fallback ping app-level
-      try { connection.socket.send(JSON.stringify({ type: "ping", t: Date.now() })); } catch {}
     }, PING_INTERVAL_MS);
 
-    // 🔁 Si la lib expone "pong"
-    connection.socket.on?.("pong", () => {
+    connection.socket.on("pong", () => {
       const st = socketState.get(connection.socket);
       if (st) st.lastPongAt = Date.now();
     });
 
-    // 👇 Manejo de mensajes con JSON seguro
+    // Manejo de mensajes
     connection.socket.on("message", (raw) => {
       let parsed;
-      try {
-        parsed = JSON.parse(raw.toString());
-      } catch {
-        parsed = { content: raw.toString() };
-      }
-
+      try { parsed = JSON.parse(raw.toString()); } catch { parsed = { content: raw.toString() }; }
       const MAX_LEN = 4000;
-      const safeContent =
-        typeof parsed.content === "string"
-          ? parsed.content.slice(0, MAX_LEN)
-          : String(parsed.content ?? "").slice(0, MAX_LEN);
-
+      const safeContent = typeof parsed.content === "string" ? parsed.content.slice(0, MAX_LEN) : String(parsed.content ?? "").slice(0, MAX_LEN);
       const payload = {
         type: "message",
         chatId,
-        from: parsed.from || (anonToken ? "anon" : "creator"),
+        from: parsed.from || anonToken,
         alias: parsed.alias || "Anónimo",
         content: safeContent,
         createdAt: new Date(),
       };
-
       const st = socketState.get(connection.socket);
       if (st) {
         st.messagesCount++;
-        if (st.messagesCount % 200 === 0) {
-          fastify.log.warn(`⚠️ Flood posible en chat=${chatId} msgs=${st.messagesCount}`);
-        }
+        if (st.messagesCount % 200 === 0) fastify.log.warn(`⚠️ Flood posible en chat=${chatId} msgs=${st.messagesCount}`);
       }
-
+      broadcastMessage(chatId, payload);
       fastify.log.info(`📩 [${chatId}] ${safeContent}`);
-
-      const clients = chatRooms.get(chatId) || new Set();
-      for (const client of clients) {
-        try {
-          if (client.readyState === 1) {
-            client.send(JSON.stringify(payload));
-          }
-        } catch (e) {
-          fastify.log.warn({ err: e }, "No se pudo emitir a un cliente");
-        }
-      }
     });
 
-    // ✅ Manejo de desconexión
-    try {
-      // ✅ Manejo de desconexión
-      connection.socket.on("close", () => {
-        const st = socketState.get(connection.socket);
-        if (st) st.closed = true;
-    
-        fastify.log.info(`❌ Cliente salió chat=${chatId}`);
-        try {
-          chatRooms.get(chatId)?.delete(connection.socket);
-          if ((chatRooms.get(chatId)?.size || 0) === 0) {
-            chatRooms.delete(chatId);
-          }
-        } catch {}
-        clearInterval(pingTimer);
-      });
-    
-      // ✅ Manejo de errores
-      connection.socket.on("error", (err) => {
-        fastify.log.error({ err }, `⚠️ Error WS chat=${chatId}`);
-      });
-    
-    } catch (err) {
-      fastify.log.error({ err }, "❌ Error inicializando WebSocket");
-      try { connection.socket.send(JSON.stringify({ type: "error", error: "init_failed" })); } catch {}
-      try { connection.socket.close(); } catch {}
-    }
-    
-/* ======================
-   Plugins personalizados
-   ====================== */
-fastify.register(authPlugin);
+    // Reconexión opcional: el cliente puede enviar WS con mismo anonToken
+    connection.socket.on("close", () => {
+      const st = socketState.get(connection.socket);
+      if (st) st.closed = true;
+      chatRooms.get(chatId)?.delete(connection.socket);
+      if ((chatRooms.get(chatId)?.size || 0) === 0) chatRooms.delete(chatId);
+      clearInterval(pingTimer);
+      fastify.log.info(`❌ Cliente salió chat=${chatId}`);
+    });
 
-/* ======================
-   Rutas REST
-   ====================== */
+    connection.socket.on("error", (err) => {
+      fastify.log.error({ err }, `⚠️ Error WS chat=${chatId}`);
+    });
+
+  } catch (err) {
+    fastify.log.error({ err }, "❌ Error inicializando WebSocket");
+    try { connection.socket.send(JSON.stringify({ type: "error", error: "init_failed" })); } catch {}
+    try { connection.socket.close(); } catch {}
+  }
+});
+
+// ======================
+// Plugins y Rutas REST
+// ======================
+fastify.register(authPlugin);
 fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
 fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(subscribe);
-fastify.register(require("./routes/premiumDummy")); // solo en dev
+fastify.register(require("./routes/premiumDummy"));
 
-/* ======================
-   Healthcheck y Debug extra
-   ====================== */
-fastify.get("/", async () => ({ status: "API ok" }));
+// ======================
+// Debug y healthcheck extendido
+// ======================
+fastify.get("/", async () => ({ status: "API ok", ts: Date.now() }));
 
 fastify.get("/_debug/ws/rooms", async () => {
   const out = [];
@@ -323,43 +260,20 @@ fastify.get("/_debug/ws/sockets", async () => {
   return { total: stats.length, sockets: stats };
 });
 
-fastify.get("/_debug/headers", async (req) => {
-  // Ver headers que llegan tras el proxy
-  return {
-    url: req.url,
-    method: req.method,
-    headers: req.headers,
-    ip: req.headers["x-forwarded-for"] || req.ip,
-    proto: req.headers["x-forwarded-proto"] || (req.protocol || "http"),
-  };
-});
-
-fastify.get("/_debug/env", async () => {
-  // Algunas vars útiles (no exponemos todo)
-  return {
-    node_env: process.env.NODE_ENV || null,
-    port: process.env.PORT || null,
-    internal_broadcast_key: !!process.env.INTERNAL_BROADCAST_KEY,
-  };
-});
-
 fastify.get("/healthz", async () => ({ ok: true, ts: Date.now() }));
 fastify.get("/.well-known/health", async () => ({ status: "ok", ts: Date.now() }));
 
-/* ======================
-   Endpoint de broadcast interno (simple, con clave opcional)
-   ====================== */
+// ======================
+// Broadcast interno seguro con room y historial
+// ======================
 fastify.post("/_internal/broadcast", async (req, reply) => {
   const key = req.headers["x-internal-key"];
   const expected = process.env.INTERNAL_BROADCAST_KEY || null;
-  if (expected && key !== expected) {
-    return reply.code(401).send({ error: "unauthorized" });
-  }
+  if (expected && key !== expected) return reply.code(401).send({ error: "unauthorized" });
 
   const { chatId, content, from, alias } = req.body || {};
-  if (!chatId || !content) {
-    return reply.code(400).send({ error: "chatId y content son requeridos" });
-  }
+  if (!chatId || !content) return reply.code(400).send({ error: "chatId y content son requeridos" });
+
   const payload = {
     type: "message",
     chatId,
@@ -368,29 +282,18 @@ fastify.post("/_internal/broadcast", async (req, reply) => {
     content: String(content).slice(0, 4000),
     createdAt: new Date(),
   };
-  const clients = chatRooms.get(chatId) || new Set();
-  let delivered = 0;
-  for (const client of clients) {
-    try {
-      if (client.readyState === 1) {
-        client.send(JSON.stringify(payload));
-        delivered++;
-      }
-    } catch {}
-  }
-  return { ok: true, delivered };
+  broadcastMessage(chatId, payload);
+  return { ok: true, delivered: chatRooms.get(chatId)?.size || 0 };
 });
 
-/* ======================
-   Apagado elegante
-   ====================== */
+// ======================
+// Apagado elegante
+// ======================
 const shutdown = async (signal) => {
   try {
     fastify.log.warn(`Recibida señal ${signal}, cerrando WS y servidor...`);
     for (const [, set] of chatRooms.entries()) {
-      for (const sock of set.values()) {
-        try { sock.close(); } catch {}
-      }
+      for (const sock of set.values()) try { sock.close(); } catch {}
       set.clear();
     }
     chatRooms.clear();
@@ -404,19 +307,17 @@ const shutdown = async (signal) => {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-/* ======================
-   Start
-   ====================== */
+// ======================
+// Start
+// ======================
 const start = async () => {
   try {
-    const port = process.env.PORT || 8080; // Railway asigna PORT automáticamente
+    const port = process.env.PORT || 8080;
     await fastify.listen({ port, host: "0.0.0.0" });
     fastify.log.info(`🚀 Servidor corriendo en puerto ${port}`);
-    // Pequeño log útil en producción
     fastify.log.info("✅ Fastify listo. Prueba WS en: wss://<tu-dominio>/ws/chat?chatId=test");
   } catch (err) {
     fastify.log.error(err);
-    // No hacemos process.exit inmediato en prod para evitar crash loops
     process.exit(1);
   }
 };
