@@ -55,19 +55,21 @@ fastify.register(rateLimit, { max: 60, timeWindow: "1 minute" });
    - Reafirma el upgrade para proxies
    - Añade no-cache y keep-alive
    ====================== */
-fastify.addHook("onRequest", (req, reply, done) => {
-  // Si el proxy anuncia upgrade, lo reforzamos
-  if (req.headers.upgrade && String(req.headers.upgrade).toLowerCase() === "websocket") {
-    try {
-      reply.raw.setHeader("Connection", "Upgrade");
-      reply.raw.setHeader("Upgrade", "websocket");
-      // Algunas CDNs/proxies agradecen evitar compresión en WS handshake
-      reply.raw.setHeader("Cache-Control", "no-cache");
-      reply.raw.setHeader("Pragma", "no-cache");
-    } catch {}
-  }
-  done();
-});
+   fastify.addHook("onRequest", (req, reply, done) => {
+    if (req.headers.upgrade && String(req.headers.upgrade).toLowerCase() === "websocket") {
+      try {
+        reply.raw.setHeader("Connection", "Upgrade");
+        reply.raw.setHeader("Upgrade", "websocket");
+        reply.raw.setHeader("Sec-WebSocket-Version", "13");
+        reply.raw.setHeader("Cache-Control", "no-cache");
+        reply.raw.setHeader("Pragma", "no-cache");
+      } catch (e) {
+        fastify.log.error(e, "❌ Error configurando headers WS");
+      }
+    }
+    done();
+  });
+  
 
 /* ======================
    WebSocket
