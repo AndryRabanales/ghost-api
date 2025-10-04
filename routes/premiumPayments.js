@@ -1,85 +1,76 @@
-"use client";
-import { useState, useEffect } from "react";
-import { refreshToken, getAuthHeaders } from "@/utils/auth";
+// routes/premiumPayments.js
+const { MercadoPagoConfig, Preference } = require("mercadopago");
+const { PrismaClient } = require("@prisma/client");
+const crypto = require("crypto");
 
-const API = process.env.NEXT_PUBLIC_API || "https://ghost-api-production.up.railway.app";
+const prisma = new PrismaClient();
 
-export default function PremiumButton({ onChange }) {
-  const [loading, setLoading] = useState(false);
-  const [isPremium, setIsPremium] = useState(false);
+// Inicializar Mercado Pago
+const mp = new MercadoPagoConfig({
+  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN,
+});
 
-  const fetchCreatorStatus = async () => {
-    try {
-      let res = await fetch(`${API}/creators/me`, { headers: getAuthHeaders() });
+module.exports = async function premiumPayments(fastify, opts) {
+  fastify.post(
+    "/premium/create-payment",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const creatorId = req.user.id;
+      const idempotencyKey = crypto.randomUUID();
 
-      if (res.status === 401) {
-        const publicId = localStorage.getItem("publicId");
-        if (publicId) {
-          const newToken = await refreshToken(publicId);
-          if (newToken) {
-            res = await fetch(`${API}/creators/me`, { headers: getAuthHeaders(newToken) });
-          }
-        }
+      try {
+        const preference = new Preference(mp);
+
+        fastify.log.info(`Creando pago con BACKEND_URL: ${process.env.BACKEND_URL}`);
+        
+        const resMp = await preference.create({
+          body: {
+            items: [
+              {
+                title: `Suscripción Premium`,
+                quantity: 1,
+                currency_id: "MXN",
+                unit_price: 100.0,
+              },
+            ],
+            back_urls: {
+              success: `${process.env.FRONTEND_URL}/payment/success`,
+              failure: `${process.env.FRONTEND_URL}/payment/failure`,
+              pending: `${process.env.FRONTEND_URL}/payment/pending`,
+            },
+            notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
+            external_reference: creatorId,
+          },
+        });
+
+        await prisma.payment.create({
+          data: {
+            provider: "mercadopago",
+            providerPaymentId: resMp.id?.toString(),
+            creatorId,
+            amount: 100.0,
+            currency: "MXN",
+            status: "PENDING",
+            idempotencyKey,
+            raw: resMp,
+          },
+        });
+
+        return reply.send({
+          ok: true,
+          init_point: resMp.init_point,
+        });
+
+      } catch (err) {
+        // --- ¡EL SOPLÓN! ---
+        // Si Mercado Pago da un error, lo registraremos completo.
+        fastify.log.error({
+            message: "❌ Error creando la preferencia de pago en Mercado Pago",
+            errorDetails: err.cause || err.message, 
+        }, "Error detallado de Mercado Pago");
+
+        return reply.code(500).send({ error: "Error creando la preferencia. Revisa los logs del servidor." });
       }
-      if (!res.ok) return;
-      const data = await res.json();
-      setIsPremium(data.isPremium || false);
-      if (onChange) onChange(data);
-    } catch (err) {
-      console.error("❌ Error en fetchCreatorStatus:", err);
     }
-  };
-
-  const handleBecomePremium = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API}/premium/create-payment`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({}), // Enviamos un cuerpo vacío
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.init_point) {
-        window.location.href = data.init_point;
-      } else {
-        throw new Error(data.error || 'No se pudo crear el link de pago.');
-      }
-    } catch (error) {
-      console.error('Error al iniciar el pago:', error);
-      alert(`Hubo un error al procesar tu pago: ${error.message}`);
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchCreatorStatus();
-  }, []);
-
-  if (isPremium) {
-    return (
-      <div style={{ color: "gold", marginBottom: 8, padding: '10px', background: '#333', borderRadius: '8px', textAlign: 'center' }}>
-        ⭐ ¡Eres Premium! Disfruta de vidas ilimitadas.
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ marginBottom: 16, border: '1px solid #0070f3', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
-      <h3 style={{marginTop: 0}}>¿Te quedas sin vidas?</h3>
-      <p>¡Vuélvete Premium para tener respuestas ilimitadas!</p>
-      <button
-        onClick={handleBecomePremium}
-        disabled={loading}
-        style={{ padding: "10px 20px", borderRadius: 6, border: "none", background: "#0070f3", color: "#fff", cursor: loading ? "wait" : "pointer", fontWeight: 'bold', width: '100%', fontSize: '16px' }}
-      >
-        {loading ? "Generando link de pago..." : "🚀 Volverse Premium"}
-      </button>
-    </div>
   );
-}
+};
