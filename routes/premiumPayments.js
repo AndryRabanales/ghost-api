@@ -21,14 +21,10 @@ export default function PremiumButton({ onChange }) {
           }
         }
       }
-
-      if (!res.ok) throw new Error("No se pudo cargar el estado del creador");
-      
+      if (!res.ok) return;
       const data = await res.json();
       setIsPremium(data.isPremium || false);
-
       if (onChange) onChange(data);
-
     } catch (err) {
       console.error("❌ Error en fetchCreatorStatus:", err);
     }
@@ -38,28 +34,25 @@ export default function PremiumButton({ onChange }) {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      
       const response = await fetch(`${API}/premium/create-payment`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        // --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
-        // Añadimos un cuerpo JSON vacío para que el servidor no se queje.
-        body: JSON.stringify({}), 
+        body: JSON.stringify({}), // Enviamos un cuerpo vacío
       });
 
       const data = await response.json();
 
-      if (data.init_point) {
+      if (response.ok && data.init_point) {
         window.location.href = data.init_point;
       } else {
         throw new Error(data.error || 'No se pudo crear el link de pago.');
       }
     } catch (error) {
       console.error('Error al iniciar el pago:', error);
-      alert('Hubo un error al intentar procesar tu pago. Inténtalo de nuevo.');
+      alert(`Hubo un error al procesar tu pago: ${error.message}`);
       setLoading(false);
     }
   };
@@ -79,22 +72,11 @@ export default function PremiumButton({ onChange }) {
   return (
     <div style={{ marginBottom: 16, border: '1px solid #0070f3', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
       <h3 style={{marginTop: 0}}>¿Te quedas sin vidas?</h3>
-      <p>¡Vuélvete Premium para tener respuestas ilimitadas y apoyar el proyecto!</p>
-      
+      <p>¡Vuélvete Premium para tener respuestas ilimitadas!</p>
       <button
         onClick={handleBecomePremium}
         disabled={loading}
-        style={{
-          padding: "10px 20px",
-          borderRadius: 6,
-          border: "none",
-          background: "#0070f3",
-          color: "#fff",
-          cursor: loading ? "wait" : "pointer",
-          fontWeight: 'bold',
-          width: '100%',
-          fontSize: '16px'
-        }}
+        style={{ padding: "10px 20px", borderRadius: 6, border: "none", background: "#0070f3", color: "#fff", cursor: loading ? "wait" : "pointer", fontWeight: 'bold', width: '100%', fontSize: '16px' }}
       >
         {loading ? "Generando link de pago..." : "🚀 Volverse Premium"}
       </button>
