@@ -111,9 +111,6 @@ connection.socket.on("close", () => {
   fastify.log.info(`❌ Cliente desconectado de chat=${chatId}`);
 });
 
-    
-
-    const chatId = url.searchParams.get("chatId");
     const anonToken = url.searchParams.get("anonToken") || null;
 
     // Origen & Proto (útiles detrás de proxy)
