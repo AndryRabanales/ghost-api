@@ -22,8 +22,6 @@ module.exports = async function premiumPayments(fastify, opts) {
       try {
         const preference = new Preference(mp);
 
-        // --- Log para verificar que las variables de entorno se leen correctamente ---
-        fastify.log.info(`Creando pago con FRONTEND_URL: ${process.env.FRONTEND_URL}`);
         fastify.log.info(`Creando pago con BACKEND_URL: ${process.env.BACKEND_URL}`);
 
         const resMp = await preference.create({
@@ -66,10 +64,10 @@ module.exports = async function premiumPayments(fastify, opts) {
 
       } catch (err) {
         // --- ¡EL SOPLÓN! ---
-        // Si Mercado Pago da un error, registraremos el error COMPLETO.
+        // Si Mercado Pago da un error, lo registraremos completo en los logs.
         fastify.log.error({
             message: "❌ Error creando la preferencia de pago en Mercado Pago",
-            // El objeto 'err.cause' contiene la respuesta exacta de la API de MP
+            // 'err.cause' contiene la respuesta exacta de la API de Mercado Pago
             errorDetails: err.cause || err.message, 
         }, "Error detallado de Mercado Pago");
 
