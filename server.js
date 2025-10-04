@@ -249,34 +249,33 @@ connection.socket.on("close", () => {
     });
 
     // ✅ Manejo de desconexión
-    connection.socket.on("close", () => {
-      const st = socketState.get(connection.socket);
-      if (st) st.closed = true;
-
-      fastify.log.info(`❌ Cliente salió chat=${chatId}`);
-      try {
-        chatRooms.get(chatId)?.delete(connection.socket);
-        if ((chatRooms.get(chatId)?.size || 0) === 0) {
-          chatRooms.delete(chatId);
-        }
-      } catch {}
-      clearInterval(pingTimer);
-    });
-
-    // ✅ Manejo de errores
-    connection.socket.on("error", (err) => {
-      fastify.log.error({ err }, `⚠️ Error WS chat=${chatId}`);
-    });
-
-  } catch (err) {
-    // 👇 Este catch capturaba tu "❌ Error inicializando WebSocket:"
-    // Ahora loguea más contexto y no deja el proceso inestable
-    fastify.log.error({ err }, "❌ Error inicializando WebSocket");
-    try { connection.socket.send(JSON.stringify({ type: "error", error: "init_failed" })); } catch {}
-    try { connection.socket.close(); } catch {}
-  }
-});
-
+    try {
+      // ✅ Manejo de desconexión
+      connection.socket.on("close", () => {
+        const st = socketState.get(connection.socket);
+        if (st) st.closed = true;
+    
+        fastify.log.info(`❌ Cliente salió chat=${chatId}`);
+        try {
+          chatRooms.get(chatId)?.delete(connection.socket);
+          if ((chatRooms.get(chatId)?.size || 0) === 0) {
+            chatRooms.delete(chatId);
+          }
+        } catch {}
+        clearInterval(pingTimer);
+      });
+    
+      // ✅ Manejo de errores
+      connection.socket.on("error", (err) => {
+        fastify.log.error({ err }, `⚠️ Error WS chat=${chatId}`);
+      });
+    
+    } catch (err) {
+      fastify.log.error({ err }, "❌ Error inicializando WebSocket");
+      try { connection.socket.send(JSON.stringify({ type: "error", error: "init_failed" })); } catch {}
+      try { connection.socket.close(); } catch {}
+    }
+    
 /* ======================
    Plugins personalizados
    ====================== */
@@ -401,7 +400,7 @@ const shutdown = async (signal) => {
     fastify.log.error("Error en shutdown:", e);
     process.exit(1);
   }
-};8
+};
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
