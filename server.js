@@ -23,7 +23,10 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 
 // --- 2. REGISTRAR MIDDLEWARES Y PLUGINS ---
 fastify.register(helmet);
-fastify.register(cors, { origin: true });
+fastify.register(cors, { 
+  origin: ["http://localhost:3000", "https://ghost-web-two.vercel.app"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+});
 fastify.register(rateLimit, { max: 100, timeWindow: "1 minute" });
 
 // Plugins principales
