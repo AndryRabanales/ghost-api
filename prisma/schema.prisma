@@ -12,17 +12,25 @@ generator client {
    CREATOR (DASHBOARD)
    ====================== */
 model Creator {
-  id           String    @id            // dashboardId (uuid generado en Node)
+  id           String    @id
   publicId     String    @unique
   name         String?
+  email        String?   @unique
+  password     String?
+
   messages     Message[]
   chats        Chat[]
 
   // ===== CAMPOS PARA VIDAS Y PREMIUM =====
-  lives        Int       @default(6)       // vidas actuales
-  maxLives     Int       @default(6)       // tope máximo de vidas
-  lastUpdated  DateTime  @default(now())   // última vez que se calculó regeneración
-  isPremium    Boolean   @default(false)   // premium = vidas ilimitadas
+  lives        Int       @default(6)
+  maxLives     Int       @default(6)
+  lastUpdated  DateTime  @default(now())
+  isPremium    Boolean   @default(false)
+
+  // 👇 CAMPOS QUE FALTABAN PARA LA SUSCRIPCIÓN 👇
+  subscriptionId    String?   @unique
+  subscriptionStatus String?
+  premiumExpiresAt  DateTime?
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @default(now()) @updatedAt

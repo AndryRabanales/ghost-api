@@ -1,75 +1,55 @@
 // routes/premiumPayments.js
-const { MercadoPagoConfig, Preference } = require("mercadopago");
+const { MercadoPagoConfig, PreApproval } = require("mercadopago"); // 👈 Cambiamos a PreApproval para suscripciones
 const { PrismaClient } = require("@prisma/client");
-const crypto = require("crypto");
 
 const prisma = new PrismaClient();
 
-// Inicializar Mercado Pago
 const mp = new MercadoPagoConfig({
   accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN,
 });
 
 module.exports = async function premiumPayments(fastify, opts) {
   fastify.post(
-    "/premium/create-payment",
-    { preHandler: [fastify.authenticate] },
+    "/premium/create-subscription", // 👈 Nombramos la ruta para que sea más clara
+    { preHandler: [fastify.authenticate] }, // Protegemos la ruta, solo usuarios logueados pueden suscribirse
     async (req, reply) => {
       const creatorId = req.user.id;
-      const idempotencyKey = crypto.randomUUID();
+      const creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+
+      if (!creator) {
+        return reply.code(404).send({ error: "Usuario no encontrado" });
+      }
+
+      // Validar que el plan ID esté configurado
+      if (!process.env.MERCADOPAGO_PLAN_ID) {
+          fastify.log.error("❌ MERCADOPAGO_PLAN_ID no está configurado en las variables de entorno.");
+          return reply.code(500).send({ error: "Error de configuración del servidor." });
+      }
 
       try {
-        const preference = new Preference(mp);
-
-        fastify.log.info(`Creando pago con BACKEND_URL: ${process.env.BACKEND_URL}`);
-        
-        const resMp = await preference.create({
+        const preApproval = new PreApproval(mp);
+        const response = await preApproval.create({
           body: {
-            items: [
-              {
-                title: `Suscripción Premium`,
-                quantity: 1,
-                currency_id: "MXN",
-                unit_price: 100.0,
-              },
-            ],
-            back_urls: {
-              success: `${process.env.FRONTEND_URL}/payment/success`,
-              failure: `${process.env.FRONTEND_URL}/payment/failure`,
-              pending: `${process.env.FRONTEND_URL}/payment/pending`,
-            },
-            notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
-            external_reference: creatorId,
+            preapproval_plan_id: process.env.MERCADOPAGO_PLAN_ID,
+            reason: `Suscripción Premium para ${creator.name}`,
+            external_reference: creatorId, // ✅ Vinculamos la suscripción al ID de tu usuario
+            payer_email: creator.email, // Usamos el email del usuario para una mejor experiencia
+            back_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}`, // A dónde volverá el usuario tras el pago
           },
         });
 
-        await prisma.payment.create({
-          data: {
-            provider: "mercadopago",
-            providerPaymentId: resMp.id?.toString(),
-            creatorId,
-            amount: 100.0,
-            currency: "MXN",
-            status: "PENDING",
-            idempotencyKey,
-            raw: resMp,
-          },
-        });
-
-        return reply.send({
-          ok: true,
-          init_point: resMp.init_point,
-        });
+        fastify.log.info(`✅ Link de suscripción generado para creator ${creatorId}`);
+        
+        // Devolvemos el link de pago (init_point) al frontend
+        return reply.send({ ok: true, init_point: response.init_point });
 
       } catch (err) {
-        // --- ¡EL SOPLÓN! ---
-        // Si Mercado Pago da un error, lo registraremos completo.
         fastify.log.error({
-            message: "❌ Error creando la preferencia de pago en Mercado Pago",
+            message: "❌ Error creando la suscripción en Mercado Pago",
             errorDetails: err.cause || err.message, 
         }, "Error detallado de Mercado Pago");
 
-        return reply.code(500).send({ error: "Error creando la preferencia. Revisa los logs del servidor." });
+        return reply.code(500).send({ error: "Error al contactar con el proveedor de pagos" });
       }
     }
   );
