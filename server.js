@@ -1,4 +1,4 @@
-// server.js (Versión Final y Corregida)
+// server.js (Versión Final y Limpia)
 
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
@@ -24,7 +24,7 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 // --- 2. REGISTRAR MIDDLEWARES Y PLUGINS ---
 fastify.register(helmet);
 
-// 👇 CORRECCIÓN PARA EL ERROR DE CORS 👇
+// Configuración de CORS para permitir peticiones desde tu frontend
 fastify.register(cors, { 
   origin: ["http://localhost:3000", "https://ghost-web-two.vercel.app"],
   methods: ["GET", "POST", "PUT", "DELETE"],
@@ -32,13 +32,13 @@ fastify.register(cors, {
 
 fastify.register(rateLimit, { max: 100, timeWindow: "1 minute" });
 
-// Plugins principales
+// Plugins principales de la aplicación
 fastify.register(websocket);
 fastify.register(websocketPlugin);
 fastify.register(authPlugin);
 
-// --- 3. REGISTRAR RUTAS DE LA APLICACIÓN ---
-fastify.register(authRoutes); // Ruta de autenticación añadida
+// --- 3. REGISTRAR TODAS LAS RUTAS (una sola vez) ---
+fastify.register(authRoutes);
 fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
