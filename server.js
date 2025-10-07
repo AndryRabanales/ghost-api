@@ -7,7 +7,6 @@ const rateLimit = require("@fastify/rate-limit");
 const websocket = require("@fastify/websocket");
 
 // --- 1. IMPORTAR RUTAS Y PLUGINS ---
-const authPlugin = require("./plugins/auth");
 const websocketPlugin = require("./plugins/websocket");
 
 const authRoutes = require("./routes/auth"); // Rutas para registro y login
@@ -25,7 +24,7 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 fastify.register(helmet);
 
 // Configuración de CORS para permitir peticiones desde tu frontend
-fastify.register(cors, { 
+fastify.register(cors, {
   origin: ["http://localhost:3000", "https://ghost-web-two.vercel.app"],
   methods: ["GET", "POST", "PUT", "DELETE"],
 });
@@ -35,7 +34,6 @@ fastify.register(rateLimit, { max: 100, timeWindow: "1 minute" });
 // Plugins principales de la aplicación
 fastify.register(websocket);
 fastify.register(websocketPlugin);
-fastify.register(authPlugin);
 
 // --- 3. REGISTRAR TODAS LAS RUTAS (una sola vez) ---
 fastify.register(authRoutes);
