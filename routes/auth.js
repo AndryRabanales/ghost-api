@@ -1,8 +1,9 @@
 // routes/auth.js
 const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma new PrismaClient();
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken"); // Asegúrate de importar jwt
 
 async function authRoutes(fastify, opts) {
   // --- Endpoint para REGISTRAR un nuevo usuario ---
@@ -16,19 +17,48 @@ async function authRoutes(fastify, opts) {
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      const creator = await prisma.creator.create({
-        data: {
-          id: crypto.randomUUID(),
-          publicId: crypto.randomUUID(),
-          name,
-          email,
-          password: hashedPassword,
-        },
-      });
+      // ---- ✨ LÓGICA DE ACTUALIZACIÓN DE INVITADO ✨ ----
+      let creator;
+      const authHeader = req.headers.authorization;
 
-      const token = fastify.generateToken(creator);
-      // Al registrar, también devolvemos el ID para la redirección
-      reply.code(201).send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
+      if (authHeader) {
+        try {
+          const token = authHeader.replace('Bearer ', '');
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          
+          // Buscamos al creador "invitado" por su ID
+          const guestCreator = await prisma.creator.findUnique({ where: { id: decoded.id } });
+
+          // Si existe y no tiene email, es una cuenta de invitado que podemos "reclamar"
+          if (guestCreator && !guestCreator.email) {
+            creator = await prisma.creator.update({
+              where: { id: guestCreator.id },
+              data: { name, email, password: hashedPassword },
+            });
+            fastify.log.info(`Cuenta de invitado ${guestCreator.id} actualizada a usuario registrado.`);
+          }
+        } catch (e) {
+          // Si el token es inválido, simplemente lo ignoramos y creamos una nueva cuenta.
+          fastify.log.warn('Token de invitado inválido durante el registro, creando nueva cuenta.');
+        }
+      }
+
+      // Si no se actualizó una cuenta de invitado, creamos una nueva
+      if (!creator) {
+        creator = await prisma.creator.create({
+          data: {
+            id: crypto.randomUUID(),
+            publicId: crypto.randomUUID(),
+            name,
+            email,
+            password: hashedPassword,
+          },
+        });
+      }
+      // -------------------------------------------------
+
+      const newToken = fastify.generateToken(creator);
+      reply.code(201).send({ token: newToken, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
 
     } catch (e) {
       if (e.code === 'P2002') {
@@ -39,7 +69,7 @@ async function authRoutes(fastify, opts) {
     }
   });
 
-  // --- Endpoint para INICIAR SESIÓN ---
+  // --- Endpoint para INICIAR SESIÓN (se queda igual) ---
   fastify.post("/auth/login", async (req, reply) => {
     const { email, password } = req.body;
 
@@ -54,8 +84,6 @@ async function authRoutes(fastify, opts) {
     }
 
     const token = fastify.generateToken(creator);
-    // ---- ✨ CORRECCIÓN CLAVE AQUÍ ✨ ----
-    // Ahora enviamos también el 'dashboardId' que es el ID del creador.
     reply.send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
   });
 }
