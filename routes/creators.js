@@ -114,9 +114,12 @@ async function creatorsRoutes(fastify, opts) {
   
       const updated = await refillLives(creator);
   
+      // ---- ✨ CORRECCIÓN CLAVE AQUÍ ✨ ----
+      // Ahora nos aseguramos de enviar siempre el email.
       reply.send({
         id: updated.id,
         name: updated.name,
+        email: updated.email, // <-- ¡ESTA ES LA LÍNEA QUE LO ARREGLA TODO!
         publicId: updated.publicId,
         lives: updated.lives,
         maxLives: updated.maxLives,
