@@ -3,11 +3,12 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient(); // ✨ CORRECCIÓN AQUÍ
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken"); // Asegúrate de importar jwt
+const jwt = require("jsonwebtoken");
 
 async function authRoutes(fastify, opts) {
   // --- Endpoint para REGISTRAR un nuevo usuario ---
   fastify.post("/auth/register", async (req, reply) => {
+    // ... (el resto del código de registro se queda igual)
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
@@ -16,8 +17,6 @@ async function authRoutes(fastify, opts) {
 
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
-
-      // ---- LÓGICA DE ACTUALIZACIÓN DE INVITADO ----
       let creator;
       const authHeader = req.headers.authorization;
 
@@ -25,7 +24,6 @@ async function authRoutes(fastify, opts) {
         try {
           const token = authHeader.replace('Bearer ', '');
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          
           const guestCreator = await prisma.creator.findUnique({ where: { id: decoded.id } });
 
           if (guestCreator && !guestCreator.email) {
@@ -51,7 +49,7 @@ async function authRoutes(fastify, opts) {
           },
         });
       }
-      
+
       const newToken = fastify.generateToken(creator);
       reply.code(201).send({ token: newToken, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
 
@@ -64,8 +62,9 @@ async function authRoutes(fastify, opts) {
     }
   });
 
-  // --- Endpoint para INICIAR SESIÓN (se queda igual) ---
+  // --- Endpoint para INICIAR SESIÓN ---
   fastify.post("/auth/login", async (req, reply) => {
+    // ... (el código de login se queda igual)
     const { email, password } = req.body;
 
     const creator = await prisma.creator.findUnique({ where: { email } });
