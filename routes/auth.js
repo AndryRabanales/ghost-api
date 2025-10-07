@@ -27,7 +27,8 @@ async function authRoutes(fastify, opts) {
       });
 
       const token = fastify.generateToken(creator);
-      reply.code(201).send({ token, publicId: creator.publicId, name: creator.name });
+      // Al registrar, también devolvemos el ID para la redirección
+      reply.code(201).send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
 
     } catch (e) {
       if (e.code === 'P2002') {
@@ -53,7 +54,9 @@ async function authRoutes(fastify, opts) {
     }
 
     const token = fastify.generateToken(creator);
-    reply.send({ token, publicId: creator.publicId, name: creator.name });
+    // ---- ✨ CORRECCIÓN CLAVE AQUÍ ✨ ----
+    // Ahora enviamos también el 'dashboardId' que es el ID del creador.
+    reply.send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
   });
 }
 
