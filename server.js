@@ -1,5 +1,4 @@
-// server.js (Versión Definitiva con CORS Dinámico)
-
+// andryrabanales/ghost-api/ghost-api-f289b0fb0e4515f9ff7114d9c446c0d0b6c62eee/server.js
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
 const helmet = require("@fastify/helmet");
@@ -7,6 +6,7 @@ const rateLimit = require("@fastify/rate-limit");
 const websocket = require("@fastify/websocket");
 
 // --- 1. IMPORTAR RUTAS Y PLUGINS ---
+const authPlugin = require("./plugins/auth");
 const websocketPlugin = require("./plugins/websocket");
 const authRoutes = require("./routes/auth");
 const creatorsRoutes = require("./routes/creators");
@@ -42,6 +42,10 @@ fastify.register(cors, {
 // =================================================================
 
 fastify.register(rateLimit, { max: 100, timeWindow: "1 minute" });
+
+// Register the authentication plugin
+fastify.register(authPlugin);
+
 fastify.register(websocket);
 fastify.register(websocketPlugin);
 
