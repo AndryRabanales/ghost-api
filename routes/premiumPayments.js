@@ -11,8 +11,6 @@ module.exports = async function premiumPayments(fastify, opts) {
     async (req, reply) => {
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
       
-      // --- CORRECCIÓN FINAL ---
-      // Eliminamos la validación de "TEST-" para aceptar el token de la cuenta de prueba del vendedor (APP_USR-...).
       if (!accessToken) {
         fastify.log.error("❌ TOKEN DE ACCESO DE MERCADO PAGO NO CONFIGURADO.");
         return reply.code(500).send({ error: "Error de configuración: Falta el Access Token." });
@@ -44,12 +42,9 @@ module.exports = async function premiumPayments(fastify, opts) {
             failure: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-failure`,
             pending: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-pending`,
           },
-          auto_recurring: {
-            frequency: 1,
-            frequency_type: 'months',
-            transaction_amount: 10,
-            currency_id: 'MXN'
-          }
+          // --- SOLUCIÓN ---
+          // Eliminamos la sección 'auto_recurring'. 
+          // El planId ya contiene toda la información de precio y frecuencia.
         };
 
         const result = await preApproval.create({ body: subscriptionData });
