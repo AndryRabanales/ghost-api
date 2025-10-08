@@ -34,17 +34,12 @@ module.exports = async function premiumPayments(fastify, opts) {
 
         const subscriptionData = {
           preapproval_plan_id: planId,
-          payer: {
-            email: creator.email, 
-          },
-          back_urls: {
-            success: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-success`,
-            failure: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-failure`,
-            pending: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-pending`,
-          },
-          // --- SOLUCIÓN ---
-          // Eliminamos la sección 'auto_recurring'. 
-          // El planId ya contiene toda la información de precio y frecuencia.
+          reason: `Suscripción Premium para ${creator.name || creator.email}`, // Motivo de la suscripción
+          payer_email: creator.email, 
+          // --- SOLUCIÓN FINAL ---
+          // Usamos 'back_url' (singular) en lugar de 'back_urls' (plural).
+          // Esta es la URL a la que el usuario volverá después del pago.
+          back_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-success`,
         };
 
         const result = await preApproval.create({ body: subscriptionData });
@@ -65,4 +60,3 @@ module.exports = async function premiumPayments(fastify, opts) {
     }
   );
 };
-
