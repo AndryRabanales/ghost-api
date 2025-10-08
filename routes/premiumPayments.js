@@ -2,7 +2,6 @@
 const { MercadoPagoConfig, Preference } = require("mercadopago");
 const { PrismaClient } = require("@prisma/client");
 
-// ¡CORREGIDO AQUÍ! Se eliminó el "new" duplicado.
 const prisma = new PrismaClient();
 
 module.exports = async function premiumPayments(fastify, opts) {
@@ -36,14 +35,19 @@ module.exports = async function premiumPayments(fastify, opts) {
                 currency_id: "MXN", // Asegúrate que esta sea tu moneda
               },
             ],
-            // IMPORTANTE: Enviamos el ID del usuario para saber a quién activar Premium
+            // --- ¡AQUÍ ESTÁ LA SOLUCIÓN! ---
+            // Añadimos información del pagador a la preferencia.
+            payer: {
+              email: creator.email,
+              name: creator.name || "Usuario de Prueba",
+            },
+            // ---------------------------------
             metadata: {
               creator_id: creator.id,
             },
             back_urls: {
               success: `${process.env.FRONTEND_URL}/payment-success`,
             },
-            // IMPORTANTE: Esta URL le dice a Mercado Pago dónde notificar el pago
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
           },
         };
