@@ -22,19 +22,11 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 // --- 2. REGISTRAR MIDDLEWARES Y PLUGINS ---
 fastify.register(helmet);
 
-// ===== CONFIGURACIÓN DE CORS DINÁMICA (SOLUCIÓN RECOMENDADA) =====
-const allowedOrigins = ["http://localhost:3000", "https://ghost-web-two.vercel.app"];
-
+// ===== CONFIGURACIÓN DE CORS (TEMPORALMENTE ABIERTO PARA PRUEBAS) =====
+// Le decimos al servidor que acepte peticiones de CUALQUIER origen.
+// Esto solucionará el error "Failed to fetch".
 fastify.register(cors, {
-  origin: (origin, callback) => {
-    // Si la solicitud no tiene 'origin' (ej. Postman, o misma máquina), se permite.
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      fastify.log.error(`CORS: Origen bloqueado -> ${origin}`);
-      callback(new Error("No permitido por CORS"), false);
-    }
-  },
+  origin: "*", // ¡Este es el cambio clave!
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
