@@ -9,12 +9,7 @@ module.exports = async function premiumPayments(fastify, opts) {
     "/premium/create-subscription",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
-      
-      // --- ✨ DIAGNÓSTICO: VAMOS A VER QUÉ TOKEN SE ESTÁ USANDO ✨ ---
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-      fastify.log.info(`Usando Access Token que empieza con: ${accessToken ? accessToken.substring(0, 8) : 'NO HAY TOKEN'}`);
-      // -----------------------------------------------------------------
-
       if (!accessToken) {
         fastify.log.error("❌ MERCADOPAGO_ACCESS_TOKEN no está configurado.");
         return reply.code(500).send({ error: "Error de configuración del servidor (Access Token)." });
@@ -33,15 +28,13 @@ module.exports = async function premiumPayments(fastify, opts) {
       }
 
       try {
+        // Simplemente generamos la URL y la enviamos.
+        // El ID de la suscripción real se guardará en el webhook DESPUÉS del pago.
         const checkoutUrl = `https://www.mercadopago.com.mx/subscriptions/checkout?preapproval_plan_id=${planId}`;
         
-        await prisma.creator.update({
-            where: { id: creatorId },
-            data: { subscriptionId: planId }
-        });
-
         fastify.log.info(`✅ Link de checkout directo generado para creator ${creatorId}`);
         
+        // Ya no actualizamos la base de datos aquí. ¡Este era el error!
         return reply.send({ ok: true, init_point: checkoutUrl });
 
       } catch (err) {
