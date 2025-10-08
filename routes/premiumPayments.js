@@ -31,17 +31,22 @@ module.exports = async function premiumPayments(fastify, opts) {
               {
                 title: "Activación Premium de Prueba",
                 quantity: 1,
-                unit_price: 10, // Precio de prueba
-                currency_id: "MXN", // Asegúrate que esta sea tu moneda
+                unit_price: 10,
+                currency_id: "MXN",
               },
             ],
-            // --- ¡AQUÍ ESTÁ LA SOLUCIÓN! ---
-            // Añadimos información del pagador a la preferencia.
+            // --- SOLUCIÓN DEFINITIVA PARA EL BOTÓN BLOQUEADO ---
+            // Creamos un objeto 'payer' súper completo para que Mercado Pago confíe en la transacción.
             payer: {
+              name: "Usuario",
+              surname: "de Prueba",
               email: creator.email,
-              name: creator.name || "Usuario de Prueba",
+              identification: {
+                type: "RFC",
+                number: "XAXX010101000" // RFC genérico para México
+              }
             },
-            // ---------------------------------
+            // ---------------------------------------------------
             metadata: {
               creator_id: creator.id,
             },
@@ -69,4 +74,3 @@ module.exports = async function premiumPayments(fastify, opts) {
     }
   );
 };
-
