@@ -2,7 +2,8 @@
 const { MercadoPagoConfig, Preference } = require("mercadopago");
 const { PrismaClient } = require("@prisma/client");
 
-const prisma = new new PrismaClient();
+// ¡CORREGIDO AQUÍ! Se eliminó el "new" duplicado.
+const prisma = new PrismaClient();
 
 module.exports = async function premiumPayments(fastify, opts) {
   // Esta ruta crea un pago único de prueba para activar Premium.
