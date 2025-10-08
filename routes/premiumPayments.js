@@ -9,14 +9,25 @@ module.exports = async function premiumPayments(fastify, opts) {
     "/premium/create-subscription",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
+      // --- PASO 1: LOGS DE DIAGNÓSTICO ---
+      fastify.log.info("--- INICIANDO /premium/create-subscription ---");
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+      const planId = process.env.MERCADOPAGO_PLAN_ID;
+      const frontendUrl = process.env.FRONTEND_URL;
       
+      fastify.log.info({
+        accessToken: accessToken ? `Presente (inicia con ${accessToken.substring(0, 8)})` : "NO PRESENTE",
+        planId: planId || "NO PRESENTE",
+        frontendUrl: frontendUrl || "NO PRESENTE (usando fallback)",
+        userId: req.user.id
+      }, "Variables de entorno y usuario:");
+      // --- FIN DE LOGS DE DIAGNÓSTICO ---
+
       if (!accessToken) {
         fastify.log.error("❌ TOKEN DE ACCESO DE MERCADO PAGO NO CONFIGURADO.");
         return reply.code(500).send({ error: "Error de configuración: Falta el Access Token." });
       }
 
-      const planId = process.env.MERCADOPAGO_PLAN_ID;
       if (!planId) {
         fastify.log.error("❌ MERCADOPAGO_PLAN_ID no está configurado.");
         return reply.code(500).send({ error: "Error de configuración del servidor (Plan ID)." });
@@ -34,29 +45,33 @@ module.exports = async function premiumPayments(fastify, opts) {
 
         const subscriptionData = {
           preapproval_plan_id: planId,
-          reason: `Suscripción Premium para ${creator.name || creator.email}`, // Motivo de la suscripción
+          reason: `Suscripción Premium para ${creator.name || creator.email}`,
           payer_email: creator.email, 
-          // --- SOLUCIÓN FINAL ---
-          // Usamos 'back_url' (singular) en lugar de 'back_urls' (plural).
-          // Esta es la URL a la que el usuario volverá después del pago.
-          back_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-success`,
+          back_url: `${frontendUrl || 'http://localhost:3000'}/payment-success`,
         };
+        
+        // --- PASO 2: LOG ANTES DE LA LLAMADA A LA API ---
+        fastify.log.info({ payload: subscriptionData }, "Enviando estos datos a Mercado Pago:");
 
         const result = await preApproval.create({ body: subscriptionData });
         
-        fastify.log.info(`✅ Preferencia de suscripción creada para creator ${creatorId}`);
+        fastify.log.info({ mpResponse: result }, "✅ Respuesta exitosa de Mercado Pago:");
         
         return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
-        const errorMessage = err.cause?.message || err.message;
+        // --- PASO 3: LOG DE ERROR DETALLADO ---
+        // Este es el log más importante. Captura TODO el error de Mercado Pago.
+        const fullError = JSON.stringify(err, Object.getOwnPropertyNames(err), 2);
         fastify.log.error({
-            message: "❌ Error al crear la preferencia de suscripción",
-            errorDetails: errorMessage, 
-        }, "Error en create-subscription");
+            message: "❌ Error DETALLADO al crear la preferencia de suscripción",
+            fullErrorObject: fullError
+        }, "Error en create-subscription (CAPTURA COMPLETA)");
 
+        const errorMessage = err.cause?.message || err.message;
         return reply.code(500).send({ error: "Error al generar el link de pago", details: errorMessage });
       }
     }
   );
 };
+
