@@ -1,5 +1,5 @@
 // routes/premiumPayments.js
-const { MercadoPagoConfig, PreApproval } = require("mercadopago");
+const { MercadoPagoConfig, PreApproval } = require("mercadopado");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
@@ -9,7 +9,7 @@ module.exports = async function premiumPayments(fastify, opts) {
     "/premium/create-subscription",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
-      // --- PASO 1: LOGS DE DIAGNÓSTICO ---
+      // --- LOGS DE DIAGNÓSTICO ---
       fastify.log.info("--- INICIANDO /premium/create-subscription ---");
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
       const planId = process.env.MERCADOPAGO_PLAN_ID;
@@ -21,7 +21,7 @@ module.exports = async function premiumPayments(fastify, opts) {
         frontendUrl: frontendUrl || "NO PRESENTE (usando fallback)",
         userId: req.user.id
       }, "Variables de entorno y usuario:");
-      // --- FIN DE LOGS DE DIAGNÓSTICO ---
+      // --- FIN DE LOGS ---
 
       if (!accessToken) {
         fastify.log.error("❌ TOKEN DE ACCESO DE MERCADO PAGO NO CONFIGURADO.");
@@ -43,6 +43,7 @@ module.exports = async function premiumPayments(fastify, opts) {
         const client = new MercadoPagoConfig({ accessToken });
         const preApproval = new PreApproval(client);
 
+        // --- ESTRUCTURA CORRECTA PARA LA SUSCRIPCIÓN ---
         const subscriptionData = {
           preapproval_plan_id: planId,
           reason: `Suscripción Premium para ${creator.name || creator.email}`,
@@ -50,7 +51,6 @@ module.exports = async function premiumPayments(fastify, opts) {
           back_url: `${frontendUrl || 'http://localhost:3000'}/payment-success`,
         };
         
-        // --- PASO 2: LOG ANTES DE LA LLAMADA A LA API ---
         fastify.log.info({ payload: subscriptionData }, "Enviando estos datos a Mercado Pago:");
 
         const result = await preApproval.create({ body: subscriptionData });
@@ -60,8 +60,6 @@ module.exports = async function premiumPayments(fastify, opts) {
         return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
-        // --- PASO 3: LOG DE ERROR DETALLADO ---
-        // Este es el log más importante. Captura TODO el error de Mercado Pago.
         const fullError = JSON.stringify(err, Object.getOwnPropertyNames(err), 2);
         fastify.log.error({
             message: "❌ Error DETALLADO al crear la preferencia de suscripción",
@@ -74,4 +72,3 @@ module.exports = async function premiumPayments(fastify, opts) {
     }
   );
 };
-
