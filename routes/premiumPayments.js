@@ -1,5 +1,5 @@
 // routes/premiumPayments.js
-const { MercadoPagoConfig } = require("mercadopago");
+const { MercadoPagoConfig, PreApproval } = require("mercadopago");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
@@ -10,41 +10,64 @@ module.exports = async function premiumPayments(fastify, opts) {
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+      
+      // --- CORRECCIÓN FINAL ---
+      // Eliminamos la validación de "TEST-" para aceptar el token de la cuenta de prueba del vendedor (APP_USR-...).
       if (!accessToken) {
-        fastify.log.error("❌ MERCADOPAGO_ACCESS_TOKEN no está configurado.");
-        return reply.code(500).send({ error: "Error de configuración del servidor (Access Token)." });
+        fastify.log.error("❌ TOKEN DE ACCESO DE MERCADO PAGO NO CONFIGURADO.");
+        return reply.code(500).send({ error: "Error de configuración: Falta el Access Token." });
       }
 
       const planId = process.env.MERCADOPAGO_PLAN_ID;
       if (!planId) {
-          fastify.log.error("❌ MERCADOPAGO_PLAN_ID no está configurado.");
-          return reply.code(500).send({ error: "Error de configuración del servidor (Plan ID)." });
+        fastify.log.error("❌ MERCADOPAGO_PLAN_ID no está configurado.");
+        return reply.code(500).send({ error: "Error de configuración del servidor (Plan ID)." });
       }
-
+      
       const creatorId = req.user.id;
       const creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-      if (!creator) {
-        return reply.code(404).send({ error: "Usuario no encontrado" });
+      if (!creator || !creator.email) {
+        return reply.code(404).send({ error: "Usuario no encontrado o sin email registrado." });
       }
 
       try {
-        // Simplemente generamos la URL y la enviamos.
-        // El ID de la suscripción real se guardará en el webhook DESPUÉS del pago.
-        const checkoutUrl = `https://www.mercadopago.com.mx/subscriptions/checkout?preapproval_plan_id=${planId}`;
+        const client = new MercadoPagoConfig({ accessToken });
+        const preApproval = new PreApproval(client);
+
+        const subscriptionData = {
+          preapproval_plan_id: planId,
+          payer: {
+            email: creator.email, 
+          },
+          back_urls: {
+            success: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-success`,
+            failure: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-failure`,
+            pending: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-pending`,
+          },
+          auto_recurring: {
+            frequency: 1,
+            frequency_type: 'months',
+            transaction_amount: 10,
+            currency_id: 'MXN'
+          }
+        };
+
+        const result = await preApproval.create({ body: subscriptionData });
         
-        fastify.log.info(`✅ Link de checkout directo generado para creator ${creatorId}`);
+        fastify.log.info(`✅ Preferencia de suscripción creada para creator ${creatorId}`);
         
-        // Ya no actualizamos la base de datos aquí. ¡Este era el error!
-        return reply.send({ ok: true, init_point: checkoutUrl });
+        return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
+        const errorMessage = err.cause?.message || err.message;
         fastify.log.error({
-            message: "❌ Error en la ruta de suscripción directa",
-            errorDetails: err.message, 
+            message: "❌ Error al crear la preferencia de suscripción",
+            errorDetails: errorMessage, 
         }, "Error en create-subscription");
 
-        return reply.code(500).send({ error: "Error al generar el link de pago" });
+        return reply.code(500).send({ error: "Error al generar el link de pago", details: errorMessage });
       }
     }
   );
 };
+
