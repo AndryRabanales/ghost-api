@@ -1,5 +1,5 @@
 // routes/premiumPayments.js
-const { MercadoPagoConfig, PreApproval } = require("mercadopado");
+const { MercadoPagoConfig, PreApproval } = require("mercadopago"); // <-- ¡CORREGIDO AQUÍ!
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
