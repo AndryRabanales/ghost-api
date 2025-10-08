@@ -1,11 +1,9 @@
-// andryrabanales/ghost-api/ghost-api-f289b0fb0e4515f9ff7114d9c446c0d0b6c62eee/server.js
+// server.js - Versión Simplificada para Pruebas
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
-const helmet = require("@fastify/helmet");
-const rateLimit = require("@fastify/rate-limit");
 const websocket = require("@fastify/websocket");
 
-// --- 1. IMPORTAR RUTAS Y PLUGINS ---
+// --- IMPORTAR RUTAS Y PLUGINS ---
 const authPlugin = require("./plugins/auth");
 const websocketPlugin = require("./plugins/websocket");
 const authRoutes = require("./routes/auth");
@@ -19,29 +17,17 @@ const premiumWebhook = require("./routes/premiumWebhook");
 
 const fastify = Fastify({ logger: true, trustProxy: true });
 
-// --- 2. REGISTRAR MIDDLEWARES Y PLUGINS ---
-fastify.register(helmet);
+// --- CONFIGURACIÓN A PRUEBA DE ERRORES ---
+// Se simplifica CORS para permitir cualquier origen durante las pruebas.
+// Se eliminan plugins (helmet, rate-limit) que podrían interferir.
+fastify.register(cors, { origin: '*' });
 
-// ===== CONFIGURACIÓN DE CORS (TEMPORALMENTE ABIERTO PARA PRUEBAS) =====
-// Le decimos al servidor que acepte peticiones de CUALQUIER origen.
-// Esto solucionará el error "Failed to fetch".
-fastify.register(cors, {
-  origin: "*", // ¡Este es el cambio clave!
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-});
-// =================================================================
-
-fastify.register(rateLimit, { max: 100, timeWindow: "1 minute" });
-
-// Register the authentication plugin
+// --- PLUGINS ESENCIALES ---
 fastify.register(authPlugin);
-
 fastify.register(websocket);
 fastify.register(websocketPlugin);
 
-// --- 3. REGISTRAR TODAS LAS RUTAS ---
+// --- REGISTRAR TODAS LAS RUTAS ---
 fastify.register(authRoutes);
 fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
@@ -51,7 +37,7 @@ fastify.register(dashboardChats);
 fastify.register(premiumPayments);
 fastify.register(premiumWebhook);
 
-// --- 4. INICIAR EL SERVIDOR ---
+// --- INICIAR EL SERVIDOR ---
 const start = async () => {
   try {
     const port = process.env.PORT || 8080;
