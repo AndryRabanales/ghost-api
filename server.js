@@ -14,12 +14,16 @@ const publicRoutes = require("./routes/public");
 const dashboardChats = require("./routes/dashboardChats");
 const premiumPayments = require("./routes/premiumPayments");
 const premiumWebhook = require("./routes/premiumWebhook");
-const testSimulator = require("./routes/testSimulator"); // <-- ¡Ya incluía este!
 
 const fastify = Fastify({ logger: true, trustProxy: true });
 
 // --- CONFIGURACIÓN ---
-fastify.register(cors, { origin: '*' });
+// --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
+// En lugar de aceptar cualquier origen, solo aceptamos el de nuestro frontend.
+fastify.register(cors, { 
+  origin: process.env.FRONTEND_URL, 
+  methods: ['GET', 'POST', 'PUT', 'DELETE'] // Métodos que permitimos
+});
 
 // --- PLUGINS ---
 fastify.register(authPlugin);
@@ -37,7 +41,6 @@ fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(premiumPayments);
 fastify.register(premiumWebhook);
-fastify.register(testSimulator); // <-- Esta línea activa AMBAS rutas de prueba.
 
 // --- INICIAR EL SERVIDOR ---
 const start = async () => {
