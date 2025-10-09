@@ -1,4 +1,4 @@
-// server.js - Versión Simplificada para Pruebas
+// server.js
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
 const websocket = require("@fastify/websocket");
@@ -14,15 +14,14 @@ const publicRoutes = require("./routes/public");
 const dashboardChats = require("./routes/dashboardChats");
 const premiumPayments = require("./routes/premiumPayments");
 const premiumWebhook = require("./routes/premiumWebhook");
+const testSimulator = require("./routes/testSimulator"); // <-- NUEVO
 
 const fastify = Fastify({ logger: true, trustProxy: true });
 
-// --- CONFIGURACIÓN A PRUEBA DE ERRORES ---
-// Se simplifica CORS para permitir cualquier origen durante las pruebas.
-// Se eliminan plugins (helmet, rate-limit) que podrían interferir.
+// --- CONFIGURACIÓN ---
 fastify.register(cors, { origin: '*' });
 
-// --- PLUGINS ESENCIALES ---
+// --- PLUGINS ---
 fastify.register(authPlugin);
 fastify.register(websocket);
 fastify.register(websocketPlugin);
@@ -36,6 +35,7 @@ fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(premiumPayments);
 fastify.register(premiumWebhook);
+fastify.register(testSimulator); // <-- NUEVO
 
 // --- INICIAR EL SERVIDOR ---
 const start = async () => {
@@ -50,3 +50,4 @@ const start = async () => {
 };
 
 start();
+
