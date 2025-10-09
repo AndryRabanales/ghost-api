@@ -5,8 +5,10 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 module.exports = async function premiumPayments(fastify, opts) {
+  // --- ¡CORRECCIÓN IMPORTANTE AQUÍ! ---
+  // Cambiamos el nombre de la ruta para que coincida con el frontend.
   fastify.post(
-    "/premium/create-test-payment", // Usaremos esta ruta para la prueba de pago único
+    "/premium/create-subscription", 
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
@@ -28,9 +30,9 @@ module.exports = async function premiumPayments(fastify, opts) {
           body: {
             items: [
               {
-                title: "Activación Premium de Prueba (Real)",
+                title: "Activación Ghosty Premium",
                 quantity: 1,
-                unit_price: 5, // <-- ¡CAMBIO IMPORTANTE AQUÍ! Precio mínimo para la prueba.
+                unit_price: 5, // Precio de prueba
                 currency_id: "MXN",
               },
             ],
@@ -55,16 +57,16 @@ module.exports = async function premiumPayments(fastify, opts) {
 
         const result = await preference.create(preferenceData);
         
-        fastify.log.info(`✅ Link de pago REAL de prueba creado para creator ${creatorId}`);
+        fastify.log.info(`✅ Link de pago creado para creator ${creatorId}`);
         
         return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
         const errorMessage = err.cause?.message || err.message;
         fastify.log.error({
-            message: "❌ Error al crear la preferencia de pago de prueba real",
+            message: "❌ Error al crear la preferencia de pago",
             errorDetails: errorMessage,
-        }, "Error en /premium/create-test-payment");
+        }, "Error en /premium/create-subscription");
         return reply.code(500).send({ error: "Error al generar el link de pago", details: errorMessage });
       }
     }
