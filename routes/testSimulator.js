@@ -2,14 +2,13 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
-const fetch = require("node-fetch"); // Asegúrate de tener node-fetch si usas una versión de Node < 18
 
 module.exports = async function testSimulator(fastify, opts) {
   fastify.post("/test/simulate-approved-payment", async (req, reply) => {
     try {
-      fastify.log.info("--- 🏁 INICIANDO SIMULACIÓN DE PAGO APROBADO ---");
+      fastify.log.info("--- 🏁 INICIANDO SIMULACIÓN DE PAGO APROBADO (MÉTODO DIRECTO) ---");
 
-      // 1. Crear un usuario de prueba para la simulación
+      // 1. Crear un usuario de prueba
       const testEmail = `simulation-${Date.now()}@ghosty.com`;
       const creator = await prisma.creator.create({
         data: {
@@ -21,48 +20,43 @@ module.exports = async function testSimulator(fastify, opts) {
       });
       fastify.log.info(`-> Usuario de prueba creado: ${creator.id}`);
 
-      // 2. Construir una notificación FALSA de Mercado Pago que nuestro webhook entenderá
+      // 2. Construir la notificación falsa
       const fakeNotification = {
-        type: "payment",
-        action: "payment.created",
-        data: {
-          id: `SIM-${Date.now()}`, // Un ID de pago simulado
-        },
-        // ¡LA MAGIA!: Enviamos los datos que necesitamos directamente.
         _simulation_metadata: {
             status: "approved",
             creator_id: creator.id
         }
       };
-      fastify.log.info(`-> Notificación falsa construida para el webhook.`);
+      fastify.log.info(`-> Notificación falsa construida. Inyectando en el webhook...`);
 
-      // 3. Llamar a nuestro propio webhook para probar la lógica
-      const webhookUrl = `${process.env.BACKEND_URL}/webhooks/mercadopago`;
-      const response = await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(fakeNotification)
+      // 3. Inyectar la petición directamente en el router de Fastify (Método a prueba de fallos)
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/webhooks/mercadopago',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify(fakeNotification)
       });
-
-      if (!response.ok) {
-          throw new Error(`El webhook respondió con un error: ${response.statusText}`);
+      
+      if (response.statusCode !== 200) {
+        throw new Error(`El webhook respondió con un error: ${response.statusCode} - ${response.body}`);
       }
 
-      fastify.log.info(`-> Webhook ejecutado exitosamente.`);
+      fastify.log.info(`-> Webhook ejecutado exitosamente vía inyección directa.`);
 
-      // 4. Verificar que el usuario es premium en la base de datos
+      // 4. Verificar el resultado en la BD
       const updatedCreator = await prisma.creator.findUnique({ where: { id: creator.id } });
 
-      if (updatedCreator.isPremium) {
+      if (updatedCreator && updatedCreator.isPremium) {
         fastify.log.info(`--- ✅ ÉXITO DE LA SIMULACIÓN: El usuario ${creator.id} ahora es premium.`);
         return reply.send({ success: true, message: `Simulación exitosa. El usuario ${updatedCreator.email} ahora es Premium.` });
       } else {
-        throw new Error("El webhook se ejecutó, pero no actualizó al usuario a premium.");
+        throw new Error("El webhook se ejecutó, pero no actualizó al usuario a premium. Revisa los logs del webhook.");
       }
 
     } catch (err) {
-      fastify.log.error("--- ❌ FALLO EN LA SIMULACIÓN ---", err);
+      fastify.log.error({ err }, "--- ❌ FALLO EN LA SIMULACIÓN ---");
       reply.code(500).send({ success: false, message: err.message });
     }
   });
 };
+
