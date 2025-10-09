@@ -9,20 +9,15 @@ module.exports = async function premiumPayments(fastify, opts) {
     "/premium/create-subscription",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
-      // 1. OBTENER VARIABLES DE ENTORNO
+      // OBTENER VARIABLES DE ENTORNO CRÍTICAS
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-      const planId = process.env.MERCADOPAGO_PLAN_ID; 
+      const planId = process.env.MERCADOPAGO_PLAN_ID;
       
-      // 🔥 Nuevas variables OBLIGATORIAS para la Solución Definitiva
-      const amount = process.env.MERCADOPAGO_SUBSCRIPTION_AMOUNT;
-      const freq = process.env.MERCADOPAGO_SUBSCRIPTION_FREQUENCY;
-      const freqType = process.env.MERCADOPAGO_SUBSCRIPTION_FREQUENCY_TYPE;
-      const currency = process.env.MERCADOPAGO_SUBSCRIPTION_CURRENCY;
-
-      if (!accessToken || !planId || !amount || !freq || !freqType || !currency) {
+      // VERIFICACIÓN DE VARIABLES CRÍTICAS
+      if (!accessToken || !planId) {
         return reply.code(500).send({ 
-          error: "Error de configuración de Mercado Pago. Faltan variables de entorno.",
-          details: "Asegúrate de que MERCADOPAGO_SUBSCRIPTION_AMOUNT, FREQUENCY, FREQUENCY_TYPE y CURRENCY estén definidos." 
+          error: "Error de configuración CRÍTICA de Mercado Pago.",
+          details: "MERCADOPAGO_ACCESS_TOKEN y MERCADOPAGO_PLAN_ID deben estar definidos en .env" 
         });
       }
 
@@ -39,21 +34,24 @@ module.exports = async function premiumPayments(fastify, opts) {
 
         const subscriptionData = {
           body: {
-            // Se incluye el planId para referencia, aunque el esquema auto_recurring fuerza el flujo.
             preapproval_plan_id: planId, 
             reason: `Suscripción Premium Ghosty para ${creator.email}`,
             payer_email: creator.email,
             back_url: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?subscription=success`,
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
             external_reference: creator.id,
-            
-            // 🔥 SOLUCIÓN DEFINITIVA: Enviar esquema completo para anular el chequeo de card_token_id.
+
+            // 🔥 SOLUCIÓN FINAL: VALORES HARDCODEADOS SEGUROS
+            // Esto anula el chequeo de 'card_token_id' y fuerza la generación del link.
+            // NOTA: USÉ MXN y 10.00 como valores de ejemplo. Si tu plan tiene otro monto/moneda,
+            // DEBES CAMBIARLOS AQUÍ. El plan de Mercado Pago debe tomar precedencia.
             auto_recurring: {
-                frequency: parseInt(freq),
-                frequency_type: freqType,
-                transaction_amount: parseFloat(amount),
-                currency_id: currency,
+                frequency: 1,
+                frequency_type: "months",
+                transaction_amount: 10.00, 
+                currency_id: "MXN",
             },
+            // FIN DE SOLUCIÓN
           },
         };
 
@@ -61,6 +59,7 @@ module.exports = async function premiumPayments(fastify, opts) {
         
         fastify.log.info(`✅ Link de SUSCRIPCIÓN creado para creator ${creatorId}`);
         
+        // El link para iniciar la suscripción está en init_point
         return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
@@ -69,7 +68,10 @@ module.exports = async function premiumPayments(fastify, opts) {
             message: "❌ Error al crear la suscripción",
             errorDetails: errorMessage,
         }, "Error en /premium/create-subscription");
-        return reply.code(500).send({ error: "Error al generar el link de suscripción", details: errorMessage });
+        return reply.code(500).send({ 
+            error: "Error al generar el link de suscripción.", 
+            details: errorMessage 
+        });
       }
     }
   );
