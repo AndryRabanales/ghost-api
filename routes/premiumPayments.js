@@ -1,5 +1,5 @@
 // routes/premiumPayments.js
-const { MercadoPagoConfig, PreApproval } = require("mercadopago"); // Importamos PreApproval en lugar de Preference
+const { MercadoPagoConfig, PreApproval } = require("mercadopago");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
@@ -9,11 +9,21 @@ module.exports = async function premiumPayments(fastify, opts) {
     "/premium/create-subscription",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
+      // 1. OBTENER VARIABLES DE ENTORNO
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-      const planId = process.env.MERCADOPAGO_PLAN_ID; // Leemos el ID del plan desde las variables
+      const planId = process.env.MERCADOPAGO_PLAN_ID; 
+      
+      // 🔥 Nuevas variables OBLIGATORIAS para la Solución Definitiva
+      const amount = process.env.MERCADOPAGO_SUBSCRIPTION_AMOUNT;
+      const freq = process.env.MERCADOPAGO_SUBSCRIPTION_FREQUENCY;
+      const freqType = process.env.MERCADOPAGO_SUBSCRIPTION_FREQUENCY_TYPE;
+      const currency = process.env.MERCADOPAGO_SUBSCRIPTION_CURRENCY;
 
-      if (!accessToken || !planId) {
-        return reply.code(500).send({ error: "Access Token o Plan ID de Mercado Pago no configurado." });
+      if (!accessToken || !planId || !amount || !freq || !freqType || !currency) {
+        return reply.code(500).send({ 
+          error: "Error de configuración de Mercado Pago. Faltan variables de entorno.",
+          details: "Asegúrate de que MERCADOPAGO_SUBSCRIPTION_AMOUNT, FREQUENCY, FREQUENCY_TYPE y CURRENCY estén definidos." 
+        });
       }
 
       const creatorId = req.user.id;
@@ -29,23 +39,21 @@ module.exports = async function premiumPayments(fastify, opts) {
 
         const subscriptionData = {
           body: {
-            preapproval_plan_id: planId,
+            // Se incluye el planId para referencia, aunque el esquema auto_recurring fuerza el flujo.
+            preapproval_plan_id: planId, 
             reason: `Suscripción Premium Ghosty para ${creator.email}`,
             payer_email: creator.email,
             back_url: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?subscription=success`,
-            // La notification_url ya está configurada en tu panel de MP, pero la enviamos por si acaso.
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
-            external_reference: creator.id, // ¡MUY IMPORTANTE! Así sabemos qué usuario se suscribió.
+            external_reference: creator.id,
             
-            // 🔥 CORRECCIÓN CLAVE PARA FORZAR EL CHEKOUT RECURRENTE:
-            // Al agregar esto, el SDK deja de pedir 'card_token_id' y genera el link.
+            // 🔥 SOLUCIÓN DEFINITIVA: Enviar esquema completo para anular el chequeo de card_token_id.
             auto_recurring: {
-                frequency: 1,
-                frequency_type: "months",
-                transaction_amount: 1, // Placeholder
-                currency_id: "MXN",    // Asegúrate de que coincida con tu plan de MP
+                frequency: parseInt(freq),
+                frequency_type: freqType,
+                transaction_amount: parseFloat(amount),
+                currency_id: currency,
             },
-            // FIN DE LA CORRECCIÓN
           },
         };
 
@@ -53,7 +61,6 @@ module.exports = async function premiumPayments(fastify, opts) {
         
         fastify.log.info(`✅ Link de SUSCRIPCIÓN creado para creator ${creatorId}`);
         
-        // El link para iniciar la suscripción está en init_point
         return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
