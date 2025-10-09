@@ -38,12 +38,12 @@ module.exports = async function premiumPayments(fastify, opts) {
             external_reference: creator.id, // ¡MUY IMPORTANTE! Así sabemos qué usuario se suscribió.
             
             // 🔥 CORRECCIÓN CLAVE PARA FORZAR EL CHEKOUT RECURRENTE:
-            // Esto resuelve el error "card_token_id is required"
+            // Al agregar esto, el SDK deja de pedir 'card_token_id' y genera el link.
             auto_recurring: {
                 frequency: 1,
                 frequency_type: "months",
-                transaction_amount: 1, // Placeholder: el monto se tomará del plan
-                currency_id: "MXN",    // Asegúrate que esta sea tu moneda local (e.g., ARS, CLP, MXN)
+                transaction_amount: 1, // Placeholder
+                currency_id: "MXN",    // Asegúrate de que coincida con tu plan de MP
             },
             // FIN DE LA CORRECCIÓN
           },
