@@ -5,10 +5,8 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 module.exports = async function premiumPayments(fastify, opts) {
-  // --- ¡CORRECCIÓN IMPORTANTE AQUÍ! ---
-  // Cambiamos el nombre de la ruta para que coincida con el frontend.
   fastify.post(
-    "/premium/create-subscription", 
+    "/premium/create-subscription",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
@@ -32,21 +30,14 @@ module.exports = async function premiumPayments(fastify, opts) {
               {
                 title: "Activación Ghosty Premium",
                 quantity: 1,
-                unit_price: 5, // Precio de prueba
+                unit_price: 5,
                 currency_id: "MXN",
               },
             ],
-            payer: {
-              name: creator.name || "Usuario",
-              surname: "de Ghosty",
-              email: creator.email,
-              identification: {
-                type: "RFC",
-                number: "XAXX010101000"
-              }
-            },
+            // --- SECCIÓN 'payer' ELIMINADA ---
+            // Ahora Mercado Pago se encargará de pedir los datos en su checkout.
             metadata: {
-              creator_id: creator.id,
+              creator_id: creator.id, // Esto es lo único que necesitamos para identificar al usuario.
             },
             back_urls: {
               success: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?payment=success`,
