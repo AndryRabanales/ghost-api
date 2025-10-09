@@ -2,16 +2,15 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
-const bcrypt = require("bcrypt"); // <-- Se añade bcrypt para hashear la contraseña
+const bcrypt = require("bcrypt");
 
 module.exports = async function testSimulator(fastify, opts) {
   fastify.post("/test/simulate-approved-payment", async (req, reply) => {
     try {
       fastify.log.info("--- 🏁 INICIANDO SIMULACIÓN DE PAGO APROBADO ---");
 
-      // 1. Crear un usuario de prueba con una contraseña por defecto
       const testEmail = `simulation-${Date.now()}@ghosty.com`;
-      const hashedPassword = await bcrypt.hash("123", 10); // Contraseña por defecto: "123"
+      const hashedPassword = await bcrypt.hash("123", 10);
 
       const creator = await prisma.creator.create({
         data: {
@@ -19,12 +18,11 @@ module.exports = async function testSimulator(fastify, opts) {
           publicId: crypto.randomUUID(),
           name: "Usuario Simulado",
           email: testEmail,
-          password: hashedPassword, // <-- ¡SE AÑADE LA CONTRASEÑA!
+          password: hashedPassword,
         },
       });
       fastify.log.info(`-> Usuario de prueba creado con contraseña: ${creator.id}`);
 
-      // ... (el resto del código de simulación se queda igual)
       const fakeNotification = {
         _simulation_metadata: {
             status: "approved",
@@ -46,7 +44,6 @@ module.exports = async function testSimulator(fastify, opts) {
       const updatedCreator = await prisma.creator.findUnique({ where: { id: creator.id } });
 
       if (updatedCreator && updatedCreator.isPremium) {
-        // --- ¡MENSAJE CORREGIDO AQUÍ! ---
         return reply.send({ success: true, message: `¡Éxito! Inicia sesión con: Email: ${updatedCreator.email} | Contraseña: 123` });
       } else {
         throw new Error("El webhook se ejecutó, pero no actualizó al usuario a premium.");
@@ -58,7 +55,6 @@ module.exports = async function testSimulator(fastify, opts) {
     }
   });
 
-  // La ruta de verificación se queda igual
   fastify.get("/test/verify-status/:email", async (req, reply) => {
     try {
         const { email } = req.params;
@@ -73,6 +69,7 @@ module.exports = async function testSimulator(fastify, opts) {
             isPremium: creator.isPremium,
             lives: creator.lives,
             subscriptionStatus: creator.subscriptionStatus,
+            premiumExpiresAt: creator.premiumExpiresAt, // Devolver la fecha de expiración
             createdAt: creator.createdAt
         });
     } catch (err) {
@@ -80,4 +77,3 @@ module.exports = async function testSimulator(fastify, opts) {
     }
   });
 };
-

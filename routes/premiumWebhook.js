@@ -35,23 +35,28 @@ module.exports = async function premiumWebhook(fastify, opts) {
 
     try {
       // --- LA SOLUCIÓN: LA LISTA DE INVITADOS ---
-      // Si la notificación viene de nuestro simulador, la dejamos pasar primero.
       if (notification && notification._simulation_metadata) {
         fastify.log.info("-> Detectada notificación de simulación. Saltando validación de firma.");
         const { status, creator_id } = notification._simulation_metadata;
 
         if (status === 'approved' && creator_id) {
+          const expires = new Date();
+          expires.setDate(expires.getDate() + 30); // Premium por 30 días
+
           await prisma.creator.update({
             where: { id: creator_id },
-            data: { isPremium: true, subscriptionStatus: 'active-simulation' },
+            data: { 
+              isPremium: true, 
+              subscriptionStatus: 'active-simulation',
+              premiumExpiresAt: expires 
+            },
           });
-          fastify.log.info(`✅ PREMIUM (SIMULADO) ACTIVADO para creator ${creator_id}.`);
+          fastify.log.info(`✅ PREMIUM (SIMULADO) ACTIVADO para creator ${creator_id} por 30 días.`);
         }
         return reply.code(200).send({ ok: true, source: 'simulation' });
       }
       
       // --- LÓGICA NORMAL (EL GUARDIA HACE SU TRABAJO) ---
-      // Si no es una simulación, entonces sí validamos la firma de Mercado Pago.
       const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
       if (!validateSignature(req, secret)) {
         fastify.log.warn("⚠️ Firma de Webhook real inválida. Petición rechazada.");
@@ -59,7 +64,6 @@ module.exports = async function premiumWebhook(fastify, opts) {
       }
       fastify.log.info("✅ Firma de Webhook real validada correctamente.");
 
-      // Si la firma es válida, procesamos el pago real...
       if (notification && notification.type === 'payment') {
         const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
         const client = new MercadoPagoConfig({ accessToken });
@@ -69,11 +73,18 @@ module.exports = async function premiumWebhook(fastify, opts) {
         if (paymentInfo.status === 'approved') {
           const creatorId = paymentInfo.metadata?.creator_id;
           if (creatorId) {
+            const expires = new Date();
+            expires.setDate(expires.getDate() + 30); // Premium por 30 días
+
             await prisma.creator.update({
               where: { id: creatorId },
-              data: { isPremium: true, subscriptionStatus: 'active' },
+              data: { 
+                isPremium: true, 
+                subscriptionStatus: 'active',
+                premiumExpiresAt: expires
+              },
             });
-            fastify.log.info(`✅ PREMIUM (REAL) ACTIVADO para creator ${creatorId}.`);
+            fastify.log.info(`✅ PREMIUM (REAL) ACTIVADO para creator ${creatorId} por 30 días.`);
           }
         }
       }
@@ -85,4 +96,3 @@ module.exports = async function premiumWebhook(fastify, opts) {
     }
   });
 };
-

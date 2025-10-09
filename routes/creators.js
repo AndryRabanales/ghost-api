@@ -95,9 +95,8 @@ async function creatorsRoutes(fastify, opts) {
   });
 
   /**
-   * Login por publicId → devuelve token
+   * Obtener datos del usuario autenticado (con chequeo de expiración de premium)
    */
-
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -111,15 +110,26 @@ async function creatorsRoutes(fastify, opts) {
       if (!creator) {
         return reply.code(404).send({ error: "Creator no encontrado" });
       }
+
+      // --- LÓGICA DE EXPIRACIÓN DE PREMIUM ---
+      if (creator.isPremium && creator.premiumExpiresAt && new Date() > new Date(creator.premiumExpiresAt)) {
+        creator = await prisma.creator.update({
+          where: { id: creator.id },
+          data: {
+            isPremium: false,
+            subscriptionStatus: 'expired'
+          }
+        });
+        fastify.log.info(`La suscripción Premium para ${creator.id} ha expirado.`);
+      }
+      // --- FIN DE LA LÓGICA DE EXPIRACIÓN ---
   
       const updated = await refillLives(creator);
   
-      // ---- ✨ CORRECCIÓN CLAVE AQUÍ ✨ ----
-      // Ahora nos aseguramos de enviar siempre el email.
       reply.send({
         id: updated.id,
         name: updated.name,
-        email: updated.email, // <-- ¡ESTA ES LA LÍNEA QUE LO ARREGLA TODO!
+        email: updated.email,
         publicId: updated.publicId,
         lives: updated.lives,
         maxLives: updated.maxLives,
