@@ -37,14 +37,15 @@ module.exports = async function premiumPayments(fastify, opts) {
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
             external_reference: creator.id, // ¡MUY IMPORTANTE! Así sabemos qué usuario se suscribió.
             
-            // SOLUCIÓN PARA EL ERROR 'card_token_id is required'
+            // 🔥 CORRECCIÓN CLAVE PARA FORZAR EL CHEKOUT RECURRENTE:
+            // Esto resuelve el error "card_token_id is required"
             auto_recurring: {
                 frequency: 1,
                 frequency_type: "months",
-                transaction_amount: 1, // Placeholder, el monto real viene del plan.
-                currency_id: "MXN",    // Ajusta la moneda si es diferente (e.g., "ARS", "CLP")
+                transaction_amount: 1, // Placeholder: el monto se tomará del plan
+                currency_id: "MXN",    // Asegúrate que esta sea tu moneda local (e.g., ARS, CLP, MXN)
             },
-            // FIN DE LA SOLUCIÓN
+            // FIN DE LA CORRECCIÓN
           },
         };
 
