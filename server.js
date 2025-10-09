@@ -1,4 +1,4 @@
-// server.js
+// server.js - Versión Final con Simulador y Verificador
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
 const websocket = require("@fastify/websocket");
@@ -14,7 +14,7 @@ const publicRoutes = require("./routes/public");
 const dashboardChats = require("./routes/dashboardChats");
 const premiumPayments = require("./routes/premiumPayments");
 const premiumWebhook = require("./routes/premiumWebhook");
-const testSimulator = require("./routes/testSimulator"); // <-- NUEVO
+const testSimulator = require("./routes/testSimulator"); // <-- ¡Ya incluía este!
 
 const fastify = Fastify({ logger: true, trustProxy: true });
 
@@ -27,6 +27,8 @@ fastify.register(websocket);
 fastify.register(websocketPlugin);
 
 // --- REGISTRAR TODAS LAS RUTAS ---
+// El archivo testSimulator.js ya contiene AMBAS rutas (/simulate y /verify-status)
+// por lo que al registrarlo aquí, ambas estarán disponibles.
 fastify.register(authRoutes);
 fastify.register(creatorsRoutes);
 fastify.register(chatsRoutes);
@@ -35,7 +37,7 @@ fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(premiumPayments);
 fastify.register(premiumWebhook);
-fastify.register(testSimulator); // <-- NUEVO
+fastify.register(testSimulator); // <-- Esta línea activa AMBAS rutas de prueba.
 
 // --- INICIAR EL SERVIDOR ---
 const start = async () => {

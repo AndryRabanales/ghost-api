@@ -4,11 +4,11 @@ const prisma = new PrismaClient();
 const crypto = require("crypto");
 
 module.exports = async function testSimulator(fastify, opts) {
+  // --- RUTA DE SIMULACIÓN (YA LA TIENES) ---
   fastify.post("/test/simulate-approved-payment", async (req, reply) => {
     try {
-      fastify.log.info("--- 🏁 INICIANDO SIMULACIÓN DE PAGO APROBADO (MÉTODO DIRECTO) ---");
+      fastify.log.info("--- 🏁 INICIANDO SIMULACIÓN DE PAGO APROBADO ---");
 
-      // 1. Crear un usuario de prueba
       const testEmail = `simulation-${Date.now()}@ghosty.com`;
       const creator = await prisma.creator.create({
         data: {
@@ -18,18 +18,14 @@ module.exports = async function testSimulator(fastify, opts) {
           email: testEmail,
         },
       });
-      fastify.log.info(`-> Usuario de prueba creado: ${creator.id}`);
 
-      // 2. Construir la notificación falsa
       const fakeNotification = {
         _simulation_metadata: {
             status: "approved",
             creator_id: creator.id
         }
       };
-      fastify.log.info(`-> Notificación falsa construida. Inyectando en el webhook...`);
 
-      // 3. Inyectar la petición directamente en el router de Fastify (Método a prueba de fallos)
       const response = await fastify.inject({
         method: 'POST',
         url: '/webhooks/mercadopago',
@@ -41,21 +37,39 @@ module.exports = async function testSimulator(fastify, opts) {
         throw new Error(`El webhook respondió con un error: ${response.statusCode} - ${response.body}`);
       }
 
-      fastify.log.info(`-> Webhook ejecutado exitosamente vía inyección directa.`);
-
-      // 4. Verificar el resultado en la BD
       const updatedCreator = await prisma.creator.findUnique({ where: { id: creator.id } });
 
       if (updatedCreator && updatedCreator.isPremium) {
-        fastify.log.info(`--- ✅ ÉXITO DE LA SIMULACIÓN: El usuario ${creator.id} ahora es premium.`);
         return reply.send({ success: true, message: `Simulación exitosa. El usuario ${updatedCreator.email} ahora es Premium.` });
       } else {
-        throw new Error("El webhook se ejecutó, pero no actualizó al usuario a premium. Revisa los logs del webhook.");
+        throw new Error("El webhook se ejecutó, pero no actualizó al usuario a premium.");
       }
 
     } catch (err) {
       fastify.log.error({ err }, "--- ❌ FALLO EN LA SIMULACIÓN ---");
       reply.code(500).send({ success: false, message: err.message });
+    }
+  });
+
+  // --- ¡NUEVA RUTA DE VERIFICACIÓN! ---
+  fastify.get("/test/verify-status/:email", async (req, reply) => {
+    try {
+        const { email } = req.params;
+        const creator = await prisma.creator.findUnique({ where: { email } });
+
+        if (!creator) {
+            return reply.code(404).send({ error: "Usuario no encontrado" });
+        }
+
+        reply.send({
+            email: creator.email,
+            isPremium: creator.isPremium,
+            lives: creator.lives,
+            subscriptionStatus: creator.subscriptionStatus,
+            createdAt: creator.createdAt
+        });
+    } catch (err) {
+        reply.code(500).send({ error: "Error al consultar el usuario" });
     }
   });
 };
