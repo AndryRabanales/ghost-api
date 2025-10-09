@@ -46,7 +46,8 @@ module.exports = async function testSimulator(fastify, opts) {
       const updatedCreator = await prisma.creator.findUnique({ where: { id: creator.id } });
 
       if (updatedCreator && updatedCreator.isPremium) {
-        return reply.send({ success: true, message: `Simulación exitosa. El usuario ${updatedCreator.email} ahora es Premium.` });
+        // --- ¡MENSAJE CORREGIDO AQUÍ! ---
+        return reply.send({ success: true, message: `¡Éxito! Inicia sesión con: Email: ${updatedCreator.email} | Contraseña: 123` });
       } else {
         throw new Error("El webhook se ejecutó, pero no actualizó al usuario a premium.");
       }
