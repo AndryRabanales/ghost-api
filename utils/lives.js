@@ -2,7 +2,7 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-const REFILL_INTERVAL_MINUTES = 15;
+const REFILL_INTERVAL_MINUTES = 30;
 
 async function refillLivesIfNeeded(creator) {
   if (!creator) return creator;

@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 const crypto = require("crypto");
 
 // Configuración de regeneración de vidas
-const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos
+const LIFE_INTERVAL = 30 * 60 * 1000; // 15 minutos
 
 /**
  * Calcula cuántos minutos faltan para la siguiente vida.

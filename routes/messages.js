@@ -3,7 +3,7 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 // Configuración de vidas
-const LIFE_INTERVAL = 15 * 60 * 1000; // 15 minutos
+const LIFE_INTERVAL = 30 * 60 * 1000; // 15 minutos
 
 // Helpers internos
 function minutesToNextLife(creator) {

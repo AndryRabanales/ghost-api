@@ -1,5 +1,5 @@
 // routes/premiumPayments.js
-const { MercadoPagoConfig, Preference } = require("mercadopago");
+const { MercadoPagoConfig, PreApproval } = require("mercadopago"); // Importamos PreApproval en lugar de Preference
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
@@ -10,65 +10,49 @@ module.exports = async function premiumPayments(fastify, opts) {
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-      if (!accessToken) {
-        return reply.code(500).send({ error: "Access Token de Mercado Pago no configurado." });
+      const planId = process.env.MERCADOPAGO_PLAN_ID; // Leemos el ID del plan desde las variables
+
+      if (!accessToken || !planId) {
+        return reply.code(500).send({ error: "Access Token o Plan ID de Mercado Pago no configurado." });
       }
 
       const creatorId = req.user.id;
       const creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-      if (!creator || !creator.email) { // Asegurarnos que el creador tiene un email
+
+      if (!creator || !creator.email) {
         return reply.code(404).send({ error: "Usuario no encontrado o no tiene un email registrado." });
       }
 
       try {
         const client = new MercadoPagoConfig({ accessToken });
-        const preference = new Preference(client);
+        const preapproval = new PreApproval(client);
 
-        const preferenceData = {
+        const subscriptionData = {
           body: {
-            items: [
-              {
-                title: "Activación Ghosty Premium",
-                quantity: 1,
-                unit_price: 69,
-                currency_id: "MXN",
-              },
-            ],
-            // --- SOLUCIÓN DEFINITIVA PARA EL BOTÓN BLOQUEADO ---
-            // Creamos un objeto 'payer' súper completo para que Mercado Pago confíe en la transacción.
-            payer: {
-              name: creator.name || "Usuario",
-              surname: "de Ghosty", // Un apellido genérico es aceptable
-              email: creator.email, // Dato CRÍTICO: Usar el email real del usuario
-              identification: {
-                type: "RFC",
-                number: "XAXX010101000" // RFC genérico para México (necesario para la estructura)
-              }
-            },
-            // ---------------------------------------------------
-            metadata: {
-              creator_id: creator.id,
-            },
-            back_urls: {
-              success: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?payment=success`,
-            },
+            preapproval_plan_id: planId,
+            reason: `Suscripción Premium Ghosty para ${creator.email}`,
+            payer_email: creator.email,
+            back_url: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?subscription=success`,
+            // La notification_url ya está configurada en tu panel de MP, pero la enviamos por si acaso.
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
+            external_reference: creator.id, // ¡MUY IMPORTANTE! Así sabemos qué usuario se suscribió.
           },
         };
 
-        const result = await preference.create(preferenceData);
+        const result = await preapproval.create(subscriptionData);
         
-        fastify.log.info(`✅ Link de pago creado para creator ${creatorId}`);
+        fastify.log.info(`✅ Link de SUSCRIPCIÓN creado para creator ${creatorId}`);
         
+        // El link para iniciar la suscripción está en init_point
         return reply.send({ ok: true, init_point: result.init_point });
 
       } catch (err) {
         const errorMessage = err.cause?.message || err.message;
         fastify.log.error({
-            message: "❌ Error al crear la preferencia de pago",
+            message: "❌ Error al crear la suscripción",
             errorDetails: errorMessage,
         }, "Error en /premium/create-subscription");
-        return reply.code(500).send({ error: "Error al generar el link de pago", details: errorMessage });
+        return reply.code(500).send({ error: "Error al generar el link de suscripción", details: errorMessage });
       }
     }
   );
