@@ -36,6 +36,15 @@ module.exports = async function premiumPayments(fastify, opts) {
             // La notification_url ya está configurada en tu panel de MP, pero la enviamos por si acaso.
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
             external_reference: creator.id, // ¡MUY IMPORTANTE! Así sabemos qué usuario se suscribió.
+            
+            // SOLUCIÓN PARA EL ERROR 'card_token_id is required'
+            auto_recurring: {
+                frequency: 1,
+                frequency_type: "months",
+                transaction_amount: 1, // Placeholder, el monto real viene del plan.
+                currency_id: "MXN",    // Ajusta la moneda si es diferente (e.g., "ARS", "CLP")
+            },
+            // FIN DE LA SOLUCIÓN
           },
         };
 
