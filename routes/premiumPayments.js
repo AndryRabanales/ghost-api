@@ -15,6 +15,7 @@ module.exports = async function premiumPayments(fastify, opts) {
       
       // VERIFICACIÓN DE VARIABLES CRÍTICAS
       if (!accessToken || !planId) {
+        fastify.log.error("Faltan MERCADOPAGO_ACCESS_TOKEN o MERCADOPAGO_PLAN_ID en las variables de entorno.");
         return reply.code(500).send({ 
           error: "Error de configuración CRÍTICA de Mercado Pago.",
           details: "MERCADOPAGO_ACCESS_TOKEN y MERCADOPAGO_PLAN_ID deben estar definidos en .env" 
@@ -39,17 +40,26 @@ module.exports = async function premiumPayments(fastify, opts) {
             back_url: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?subscription=success`,
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
             external_reference: creator.id,
-        
-            // 🔥 ESTA ES LA PARTE MÁS IMPORTANTE 🔥
-            // Fuerza la generación del link de pago.
+          
+            // 🔥 VERIFICACIÓN FINAL DE DATOS 🔥
             auto_recurring: {
                 frequency: 1,
                 frequency_type: "months",
-                transaction_amount: 69.0, // <-- ¡Verifica este monto!
-                currency_id: "MXN",      // <-- ¡Verifica esta moneda!
+                transaction_amount: 69.0, // <-- Corregido al monto de tu plan
+                currency_id: "MXN",      // <-- Corregido a la moneda de tu plan
             },
           },
         };
+
+        // =================================================================
+        // LÍNEA DE DEPURACIÓN PARA VERIFICAR LOS DATOS ANTES DE ENVIAR
+        // =================================================================
+        fastify.log.info({
+            message: "Enviando estos datos a Mercado Pago...",
+            planId: planId,
+            subscriptionBody: subscriptionData.body
+        }, "DATOS DE SUSCRIPCIÓN");
+        // =================================================================
 
         const result = await preapproval.create(subscriptionData);
         
