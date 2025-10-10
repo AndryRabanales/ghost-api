@@ -30,7 +30,7 @@ module.exports = async function premiumPayments(fastify, opts) {
               {
                 title: "Activación Ghosty Premium",
                 quantity: 1,
-                unit_price: 5,
+                unit_price: 79,
                 currency_id: "MXN",
               },
             ],
