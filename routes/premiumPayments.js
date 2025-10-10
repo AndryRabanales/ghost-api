@@ -45,7 +45,7 @@ module.exports = async function premiumPayments(fastify, opts) {
             auto_recurring: {
                 frequency: 1,
                 frequency_type: "months",
-                transaction_amount: 10.00, // <-- ¡Verifica este monto!
+                transaction_amount: 69.0, // <-- ¡Verifica este monto!
                 currency_id: "MXN",      // <-- ¡Verifica esta moneda!
             },
           },
