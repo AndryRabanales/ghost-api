@@ -31,27 +31,23 @@ module.exports = async function premiumPayments(fastify, opts) {
       try {
         const client = new MercadoPagoConfig({ accessToken });
         const preapproval = new PreApproval(client);
-
         const subscriptionData = {
           body: {
-            preapproval_plan_id: planId, 
+            preapproval_plan_id: planId,
             reason: `Suscripción Premium Ghosty para ${creator.email}`,
             payer_email: creator.email,
             back_url: `${process.env.FRONTEND_URL}/dashboard/${creatorId}?subscription=success`,
             notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
             external_reference: creator.id,
-
-            // 🔥 SOLUCIÓN FINAL: VALORES HARDCODEADOS SEGUROS
-            // Esto anula el chequeo de 'card_token_id' y fuerza la generación del link.
-            // NOTA: USÉ MXN y 10.00 como valores de ejemplo. Si tu plan tiene otro monto/moneda,
-            // DEBES CAMBIARLOS AQUÍ. El plan de Mercado Pago debe tomar precedencia.
+        
+            // 🔥 ESTA ES LA PARTE MÁS IMPORTANTE 🔥
+            // Fuerza la generación del link de pago.
             auto_recurring: {
                 frequency: 1,
                 frequency_type: "months",
-                transaction_amount: 10.00, 
-                currency_id: "MXN",
+                transaction_amount: 10.00, // <-- ¡Verifica este monto!
+                currency_id: "MXN",      // <-- ¡Verifica esta moneda!
             },
-            // FIN DE SOLUCIÓN
           },
         };
 
