@@ -84,7 +84,7 @@ async function websocketPlugin(fastify, options) {
                 fastify.log.info(`❌ Cliente desconectado de la sala de dashboard: ${dashboardId}`);
                 room.delete(socket);
                 if (room.size === 0) {
-                    dashboardRooms.delete(chatId);
+                    dashboardRooms.delete(dashboardId);
                 }
             });
         } else {
