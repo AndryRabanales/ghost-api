@@ -18,22 +18,20 @@ async function publicRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
 
-      const anonToken = alias?.trim() || crypto.randomUUID();
+      // --- CORRECCIÓN CLAVE ---
+      // 1. Se genera un token único SIEMPRE para cada nuevo chat.
+      const anonToken = crypto.randomUUID();
 
-      let chat = await prisma.chat.findFirst({
-        where: { creatorId: creator.id, anonToken },
+      // 2. Se elimina la búsqueda de un chat existente y se crea uno nuevo directamente.
+      const chat = await prisma.chat.create({
+        data: {
+          creatorId: creator.id,
+          anonToken,
+          anonAlias: alias?.trim() || "Anónimo",
+        },
       });
 
-      if (!chat) {
-        chat = await prisma.chat.create({
-          data: {
-            creatorId: creator.id,
-            anonToken,
-            anonAlias: alias?.trim() || "Anónimo", // 👈 nuevo campo
-          },
-        });
-      }
-
+      // Se crea el mensaje para el chat recién creado.
       const message = await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
