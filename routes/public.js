@@ -41,6 +41,12 @@ async function publicRoutes(fastify, opts) {
         },
       });
 
+      fastify.broadcastToDashboard(creator.id, {
+        type: 'new_message',
+        chatId: chat.id,
+        message,
+      });
+
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
       const chatUrl = `${baseUrl}/chats/${anonToken}/${chat.id}`;
 

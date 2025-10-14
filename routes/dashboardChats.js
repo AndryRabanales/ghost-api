@@ -45,7 +45,7 @@ async function dashboardChatsRoutes(fastify, opts) {
         type: "message",
         ...msg,
       };
-      fastify.broadcast(chat.id, payload);
+      fastify.broadcastToChat(chat.id, payload);
 
       reply.code(201).send(msg);
     } catch (err) {

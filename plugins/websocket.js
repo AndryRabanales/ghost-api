@@ -3,17 +3,17 @@ const fp = require('fastify-plugin');
 async function websocketPlugin(fastify, options) {
   
   const chatRooms = new Map();
+  const dashboardRooms = new Map();
 
-  // 1. CREAMOS LA FUNCIÓN PARA ENVIAR MENSAJES
-  function broadcastMessage(chatId, payload) {
+  function broadcastToChat(chatId, payload) {
     const room = chatRooms.get(chatId);
     if (!room) {
-      fastify.log.info(`Intento de broadcast a sala vacía o inexistente: ${chatId}`);
+      fastify.log.info(`Intento de broadcast a sala de chat vacía o inexistente: ${chatId}`);
       return;
     }
 
     const message = JSON.stringify(payload);
-    fastify.log.info(`Broadcasting a ${room.size} cliente(s) en la sala ${chatId}`);
+    fastify.log.info(`Broadcasting a ${room.size} cliente(s) en la sala de chat ${chatId}`);
     
     for (const client of room) {
         if (client.readyState === 1) { // 1 === WebSocket.OPEN
@@ -22,8 +22,25 @@ async function websocketPlugin(fastify, options) {
     }
   }
 
-  // 2. HACEMOS LA FUNCIÓN ACCESIBLE EN TODA LA APP
-  fastify.decorate('broadcast', broadcastMessage);
+  function broadcastToDashboard(creatorId, payload) {
+    const room = dashboardRooms.get(creatorId);
+    if (!room) {
+      fastify.log.info(`Intento de broadcast a sala de dashboard vacía o inexistente: ${creatorId}`);
+      return;
+    }
+
+    const message = JSON.stringify(payload);
+    fastify.log.info(`Broadcasting a ${room.size} cliente(s) en la sala de dashboard ${creatorId}`);
+
+    for (const client of room) {
+        if (client.readyState === 1) { // 1 === WebSocket.OPEN
+            client.send(message);
+        }
+    }
+  }
+
+  fastify.decorate('broadcastToChat', broadcastToChat);
+  fastify.decorate('broadcastToDashboard', broadcastToDashboard);
 
   fastify.addHook('onReady', () => {
     fastify.log.info('Plugin de WebSocket listo. Adjuntando listener de conexión global...');
@@ -31,30 +48,49 @@ async function websocketPlugin(fastify, options) {
     fastify.websocketServer.on('connection', (socket, req) => {
       try {
         const url = new URL(req.url, `http://${req.headers.host}`);
-        const chatId = url.searchParams.get("chatId"); // Obtenemos el chatId de la URL
+        const chatId = url.searchParams.get("chatId");
+        const dashboardId = url.searchParams.get("dashboardId");
 
-        if (!chatId) {
-          fastify.log.warn('Conexión WebSocket sin chatId. Cerrando.');
-          return socket.close();
+        if (chatId) {
+            fastify.log.info(`🔌 ¡Conexión WebSocket exitosa! Cliente conectado a la sala de chat: ${chatId}`);
+
+            if (!chatRooms.has(chatId)) {
+              chatRooms.set(chatId, new Set());
+            }
+            const room = chatRooms.get(chatId);
+            room.add(socket);
+
+            socket.send(JSON.stringify({ type: "welcome", message: `¡Bienvenido a la sala ${chatId}!` }));
+
+            socket.on('close', () => {
+              fastify.log.info(`❌ Cliente desconectado de la sala de chat: ${chatId}`);
+              room.delete(socket);
+              if (room.size === 0) {
+                chatRooms.delete(chatId);
+              }
+            });
+        } else if (dashboardId) {
+            fastify.log.info(`🔌 ¡Conexión WebSocket exitosa! Cliente conectado a la sala de dashboard: ${dashboardId}`);
+
+            if (!dashboardRooms.has(dashboardId)) {
+                dashboardRooms.set(dashboardId, new Set());
+            }
+            const room = dashboardRooms.get(dashboardId);
+            room.add(socket);
+
+            socket.send(JSON.stringify({ type: "welcome", message: `Conectado al dashboard ${dashboardId}` }));
+
+            socket.on('close', () => {
+                fastify.log.info(`❌ Cliente desconectado de la sala de dashboard: ${dashboardId}`);
+                room.delete(socket);
+                if (room.size === 0) {
+                    dashboardRooms.delete(dashboardId);
+                }
+            });
+        } else {
+            fastify.log.warn('Conexión WebSocket sin chatId ni dashboardId. Cerrando.');
+            return socket.close();
         }
-        
-        fastify.log.info(`🔌 ¡Conexión WebSocket exitosa! Cliente conectado a la sala: ${chatId}`);
-
-        if (!chatRooms.has(chatId)) {
-          chatRooms.set(chatId, new Set());
-        }
-        const room = chatRooms.get(chatId);
-        room.add(socket);
-
-        socket.send(JSON.stringify({ type: "welcome", message: `¡Bienvenido a la sala ${chatId}!` }));
-
-        socket.on('close', () => {
-          fastify.log.info(`❌ Cliente desconectado de la sala: ${chatId}`);
-          room.delete(socket);
-          if (room.size === 0) {
-            chatRooms.delete(chatId);
-          }
-        });
 
       } catch (err) {
         fastify.log.error({ err }, "Error en el listener de conexión de WebSocket.");
@@ -63,8 +99,7 @@ async function websocketPlugin(fastify, options) {
     });
   });
 
-  // La ruta dummy ahora está dentro del plugin para asegurar el orden de carga
-  fastify.get('/ws/chat', { websocket: true }, (connection, req) => {
+  fastify.get('/ws', { websocket: true }, (connection, req) => {
     // La lógica se maneja en el listener global. No hacer nada aquí.
   });
 }

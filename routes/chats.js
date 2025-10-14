@@ -37,7 +37,7 @@ async function chatsRoutes(fastify, opts) {
         type: "message",
         ...msg, // Enviamos el objeto completo del mensaje recién creado
       };
-      fastify.broadcast(chat.id, payload);
+      fastify.broadcastToChat(chat.id, payload);
       
       reply.code(201).send(msg);
     } catch (err) {
