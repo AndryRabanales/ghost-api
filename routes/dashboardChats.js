@@ -2,9 +2,9 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const { refillLivesIfNeeded, minutesToNextLife, consumeLife } = require("../utils/lives");
+const { sanitize } = require("../utils/sanitize"); // 👈 1. IMPORTAR
 
 async function dashboardChatsRoutes(fastify, opts) {
-    // ... (el resto de tus rutas como GET /dashboard/.../chats, etc. se quedan igual) ...
 
   /**
    * Enviar mensaje como creador (NO gasta vidas)
@@ -14,13 +14,16 @@ async function dashboardChatsRoutes(fastify, opts) {
   }, async (req, reply) => {
     try {
       const { dashboardId, chatId } = req.params;
-      const { content } = req.body;
+      
+      // 👇 2. SANITIZAR ENTRADA
+      const cleanContent = sanitize(req.body.content);
 
       if (req.user.id !== dashboardId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      if (!content || content.trim() === "") {
+      // 👇 3. VALIDAR LA VARIABLE LIMPIA
+      if (!cleanContent || cleanContent.trim() === "") {
         return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
       }
 
@@ -36,7 +39,7 @@ async function dashboardChatsRoutes(fastify, opts) {
         data: {
           chatId: chat.id,
           from: "creator",
-          content,
+          content: cleanContent, // 👈 4. USAR LA VARIABLE LIMPIA
         },
       });
 
@@ -54,9 +57,7 @@ async function dashboardChatsRoutes(fastify, opts) {
     }
   });
 
-  // ... (Aquí van las otras rutas que ya tenías en este archivo)
-
-    /**
+  /**
    * Obtener todos los mensajes de un chat (lado creador)
    */
   fastify.get("/dashboard/:dashboardId/chats/:chatId", {

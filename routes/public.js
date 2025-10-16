@@ -2,14 +2,17 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
+const { sanitize } = require("../utils/sanitize"); // 👈 1. IMPORTAR
 
 async function publicRoutes(fastify, opts) {
   fastify.post("/public/:publicId/messages", async (req, reply) => {
     try {
       const { publicId } = req.params;
-      const { alias, content } = req.body;
+      // 👇 2. SANITIZAR ENTRADAS
+      const cleanContent = sanitize(req.body.content);
+      const cleanAlias = sanitize(req.body.alias) || "Anónimo";
 
-      if (!content || content.trim() === "") {
+      if (!cleanContent || cleanContent.trim() === "") { // 👈 3. USAR VARIABLE LIMPIA
         return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
       }
 
@@ -18,26 +21,22 @@ async function publicRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
 
-      // --- CORRECCIÓN CLAVE ---
-      // 1. Se genera un token único SIEMPRE para cada nuevo chat.
       const anonToken = crypto.randomUUID();
 
-      // 2. Se elimina la búsqueda de un chat existente y se crea uno nuevo directamente.
       const chat = await prisma.chat.create({
         data: {
           creatorId: creator.id,
           anonToken,
-          anonAlias: alias?.trim() || "Anónimo",
+          anonAlias: cleanAlias, // 👈 4. USAR VARIABLE LIMPIA
         },
       });
 
-      // Se crea el mensaje para el chat recién creado.
       const message = await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
           from: "anon",
-          alias: alias?.trim() || "Anónimo",
-          content,
+          alias: cleanAlias, // 👈 5. USAR VARIABLE LIMPIA
+          content: cleanContent, // 👈 6. USAR VARIABLE LIMPIA
         },
       });
 
@@ -47,6 +46,7 @@ async function publicRoutes(fastify, opts) {
         message,
       });
 
+      // ... (resto de la función)
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
       const chatUrl = `${baseUrl}/chats/${anonToken}/${chat.id}`;
 

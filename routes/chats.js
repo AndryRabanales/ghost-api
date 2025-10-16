@@ -2,9 +2,9 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
+const { sanitize } = require("../utils/sanitize"); // 👈 1. IMPORTAR (Esto ya lo tenías)
 
 async function chatsRoutes(fastify, opts) {
-  // ... (el resto de tus rutas como GET /chats/:anonToken, etc. se quedan igual) ...
 
   /**
    * Enviar mensaje desde el anónimo
@@ -12,10 +12,14 @@ async function chatsRoutes(fastify, opts) {
   fastify.post("/chats/:anonToken/:chatId/messages", async (req, reply) => {
     try {
       const { anonToken, chatId } = req.params;
-      const { content, alias } = req.body;
+      
+      // 👇 SANITIZAR ENTRADAS
+      const cleanContent = sanitize(req.body.content);
 
-      if (!content)
+      // 👇 CORRECCIÓN 1: Validar la variable LIMPIA
+      if (!cleanContent || cleanContent.trim() === "") {
         return reply.code(400).send({ error: "Falta el contenido del mensaje" });
+      }
 
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, anonToken },
@@ -26,7 +30,7 @@ async function chatsRoutes(fastify, opts) {
         data: {
           chatId: chat.id,
           from: "anon",
-          content,
+          content: cleanContent, // 👈 CORRECCIÓN 2: Usar la variable LIMPIA
           alias: chat.anonAlias || "Anónimo",
         },
       });
@@ -45,17 +49,21 @@ async function chatsRoutes(fastify, opts) {
       reply.code(500).send({ error: "Error enviando mensaje" });
     }
   });
-
-  // ... (Aquí van las otras rutas que ya tenías en este archivo, como la de crear chat)
   
-    /**
-   * Crear un chat desde el lado anónimo
+  /**
+   * Crear un chat desde el lado anónimo 
+   * (Esta ruta también necesitaba sanitización)
    */
   fastify.post("/chats", async (req, reply) => {
     try {
-      const { publicId, content, alias } = req.body;
+      const { publicId } = req.body;
+      
+      // 👇 CORRECCIÓN 3: Sanitizar AMBAS entradas
+      const cleanContent = sanitize(req.body.content);
+      const cleanAlias = sanitize(req.body.alias) || "Anónimo";
 
-      if (!publicId || !content) {
+      // 👇 CORRECCIÓN 4: Validar la variable LIMPIA
+      if (!publicId || !cleanContent || cleanContent.trim() === "") {
         return reply
           .code(400)
           .send({ error: "Faltan campos obligatorios (publicId, content)" });
@@ -65,7 +73,6 @@ async function chatsRoutes(fastify, opts) {
       if (!creator)
         return reply.code(404).send({ error: "Creator no encontrado" });
 
-      // 🔑 Cada anónimo tendrá un token único
       const anonToken = crypto.randomUUID();
 
       // Crear el chat
@@ -73,6 +80,7 @@ async function chatsRoutes(fastify, opts) {
         data: {
           creatorId: creator.id,
           anonToken,
+          anonAlias: cleanAlias, // 👈 CORRECCIÓN 5: Guardar alias limpio
         },
       });
 
@@ -81,8 +89,8 @@ async function chatsRoutes(fastify, opts) {
         data: {
           chatId: chat.id,
           from: "anon",
-          content,
-          alias: alias || null,
+          content: cleanContent, // 👈 CORRECCIÓN 6: Usar content limpio
+          alias: cleanAlias,     // 👈 CORRECCIÓN 7: Usar alias limpio
         },
       });
 
@@ -134,7 +142,7 @@ async function chatsRoutes(fastify, opts) {
               createdAt: last.createdAt,
             }
           : null,
-        anonAlias: last?.alias || "Anónimo",
+        anonAlias: chat.anonAlias || last?.alias || "Anónimo", // Usar el alias del chat
       });
     } catch (err) {
       fastify.log.error(err);
@@ -164,7 +172,7 @@ async function chatsRoutes(fastify, opts) {
           id: m.id,
           from: m.from,
           content: m.content,
-          alias: m.alias || "Anónimo",
+          alias: m.alias || chat.anonAlias || "Anónimo", // Usar el alias del chat
           seen: m.seen,
           createdAt: m.createdAt,
         })),
