@@ -50,6 +50,13 @@ async function dashboardChatsRoutes(fastify, opts) {
       };
       fastify.broadcastToChat(chat.id, payload);
 
+      // ==================
+      //  👇 ¡ESTE ES EL ARREGLO FINAL! 👇
+      // Esto notifica al dashboard del creador (a tu MessageList)
+      // que tú mismo enviaste un mensaje, para que se actualice.
+      fastify.broadcastToDashboard(chat.creatorId, payload);
+      // ==================
+
       reply.code(201).send(msg);
     } catch (err) {
       fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/messages:", err);
