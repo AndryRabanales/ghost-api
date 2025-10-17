@@ -1,21 +1,64 @@
 // plugins/websocket.js
 const fp = require('fastify-plugin');
-const { PrismaClient } = require('@prisma/client'); // 👈 1. IMPORTAR
-const jwt = require('jsonwebtoken'); // 👈 2. IMPORTAR
-const prisma = new PrismaClient(); // 👈 3. INICIAR PRISMA
+const { PrismaClient } = require('@prisma/client');
+const jwt = require('jsonwebtoken');
+const prisma = new PrismaClient();
 
 async function websocketPlugin(fastify, options) {
   
+  // Estos Map guardan las conexiones activas
   const chatRooms = new Map();
   const dashboardRooms = new Map();
 
-  // ... (tus funciones broadcastToChat y broadcastToDashboard se quedan igual)
+  // ==================
+  //  👇 ¡AQUÍ ESTÁ LA LÓGICA QUE FALTABA! 👇
+  // ==================
+
+  /**
+   * Envía un mensaje a todos los sockets en una sala de chat específica.
+   */
   function broadcastToChat(chatId, payload) {
-    // ... (sin cambios)
+    const room = chatRooms.get(chatId);
+    if (!room) {
+      fastify.log.info(`Sala de chat ${chatId} no encontrada, no se envió nada.`);
+      return;
+    }
+
+    const message = JSON.stringify(payload);
+    fastify.log.info(`Enviando a sala de CHAT ${chatId} (${room.size} sockets)`);
+
+    for (const socket of room) {
+      // 1 = WebSocket.OPEN
+      if (socket.readyState === 1) { 
+        socket.send(message);
+      }
+    }
   }
+
+  /**
+   * Envía un mensaje a todos los sockets de un dashboard de creador específico.
+   */
   function broadcastToDashboard(creatorId, payload) {
-    // ... (sin cambios)
+    const room = dashboardRooms.get(creatorId);
+    if (!room) {
+      fastify.log.info(`Sala de DASHBOARD ${creatorId} no encontrada, no se envió nada.`);
+      return;
+    }
+
+    const message = JSON.stringify(payload);
+    fastify.log.info(`Enviando a sala de DASHBOARD ${creatorId} (${room.size} sockets)`);
+    
+    for (const socket of room) {
+      // 1 = WebSocket.OPEN
+      if (socket.readyState === 1) {
+        socket.send(message);
+      }
+    }
   }
+  // ==================
+  //  👆 ¡FIN DE LA LÓGICA QUE FALTABA! 👆
+  // ==================
+
 
   fastify.decorate('broadcastToChat', broadcastToChat);
   fastify.decorate('broadcastToDashboard', broadcastToDashboard);
@@ -23,7 +66,6 @@ async function websocketPlugin(fastify, options) {
   fastify.addHook('onReady', () => {
     fastify.log.info('Plugin de WebSocket listo. Adjuntando listener de conexión global...');
 
-    // 👇 4. HACER QUE EL LISTENER SEA ASÍNCRONO
     fastify.websocketServer.on('connection', async (socket, req) => {
       try {
         const url = new URL(req.url, `http://${req.headers.host}`);
@@ -34,11 +76,13 @@ async function websocketPlugin(fastify, options) {
         if (dashboardId) {
           const token = url.searchParams.get("token"); // Token JWT
           if (!token) {
+            fastify.log.warn('Conexión a dashboard SIN token. Cerrando.');
             return socket.close(1008, "Token no proporcionado");
           }
           try {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             if (decoded.id !== dashboardId) {
+              fastify.log.warn(`Token no válido para dashboard ${dashboardId}. Cerrando.`);
               return socket.close(1008, "Token no válido para este dashboard");
             }
             // Autenticado
@@ -68,6 +112,7 @@ async function websocketPlugin(fastify, options) {
         } else if (chatId) {
           const anonToken = url.searchParams.get("anonToken");
           if (!anonToken) {
+            fastify.log.warn('Conexión a chat SIN anonToken. Cerrando.');
             return socket.close(1008, "Token de chat no proporcionado");
           }
 
@@ -77,6 +122,7 @@ async function websocketPlugin(fastify, options) {
           });
 
           if (!chat) {
+            fastify.log.warn(`Token de chat no válido para ${chatId}. Cerrando.`);
             return socket.close(1008, "Token de chat no válido");
           }
           
