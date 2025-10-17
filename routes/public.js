@@ -40,11 +40,15 @@ async function publicRoutes(fastify, opts) {
         },
       });
 
+      // ==================
+      //  👇 ¡AQUÍ ESTÁ LA MODIFICACIÓN! 👇
+      // Cambiamos el 'type' a 'message' y enviamos el mensaje completo
+      // para ser consistentes con la otra ruta.
       fastify.broadcastToDashboard(creator.id, {
-        type: 'new_message',
-        chatId: chat.id,
-        message,
+        type: 'message',
+        ...message, // El objeto 'message' ya contiene el chatId
       });
+      // ==================
 
       // ... (resto de la función)
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";

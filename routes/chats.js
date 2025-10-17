@@ -42,6 +42,12 @@ async function chatsRoutes(fastify, opts) {
         ...msg, // Enviamos el objeto completo del mensaje recién creado
       };
       fastify.broadcastToChat(chat.id, payload);
+
+      // ==================
+      //  👇 ¡ESTA ES LA LÍNEA QUE ARREGLA TU ERROR! 👇
+      // Esto hace que el mensaje aparezca en tiempo real en el dashboard del creador.
+      fastify.broadcastToDashboard(chat.creatorId, payload);
+      // ==================
       
       reply.code(201).send(msg);
     } catch (err) {
