@@ -2,19 +2,20 @@
 const fp = require('fastify-plugin');
 const { PrismaClient } = require('@prisma/client');
 const jwt = require('jsonwebtoken');
-const Redis = require('ioredis'); // 👈 IMPORTACIÓN CLAVE
+const Redis = require('ioredis'); 
 const prisma = new PrismaClient();
 
-// 🚨 CONFIGURACIÓN DE REDIS PARA ESCALABILIDAD
-// Esta línea leerá la variable REDIS_URL que configuraste en Railway
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+// 🚨 CONFIGURACIÓN TEMPORAL PARA DEBUG 🚨
+// Se usa la URL pública fija para evitar el error ENOTFOUND de la red interna.
+// ESTO ES INSEGURO Y DEBE REVERTIRSE.
+const REDIS_URL = 'redis://default:IklQClIOspCXuTSacRHpAPNNudIyLCPU@interchange.proxy.rlwy.net:16047'; 
+
 const publisher = new Redis(REDIS_URL); 
 const subscriber = new Redis(REDIS_URL); 
 const REDIS_CHANNEL = 'ghosty-messages'; // Canal único para todas las notificaciones
 
 async function websocketPlugin(fastify, options) {
   
-  // Estos Map se mantienen para las conexiones LOCALES de esta réplica
   const chatRooms = new Map();
   const dashboardRooms = new Map();
 
@@ -91,7 +92,7 @@ async function websocketPlugin(fastify, options) {
     // --- FIN Lógica de Redis SUBSCRIBE ---
 
     fastify.websocketServer.on('connection', async (socket, req) => {
-      // (Tu lógica de autenticación y manejo de conexión original que estaba aquí)
+      // (Tu lógica de autenticación y manejo de conexión original)
       try {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const chatId = url.searchParams.get("chatId");
@@ -160,7 +161,7 @@ async function websocketPlugin(fastify, options) {
           const room = chatRooms.get(chatId);
           room.add(socket);
 
-          socket.send(JSON.stringify({ type: "welcome", message: `¡Bienvenido a la sala ${chatId}!` }));
+          socket.send(JSON.stringify({ type: "welcome", message: `Conectado al chat ${chatId}` }));
 
           socket.on('close', () => {
             fastify.log.info(`❌ Cliente desconectado de la sala de chat: ${chatId}`);
