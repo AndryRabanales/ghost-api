@@ -2,62 +2,54 @@
 const fp = require('fastify-plugin');
 const { PrismaClient } = require('@prisma/client');
 const jwt = require('jsonwebtoken');
+const Redis = require('ioredis'); // 👈 IMPORTACIÓN CLAVE
 const prisma = new PrismaClient();
+
+// 🚨 CONFIGURACIÓN DE REDIS PARA ESCALABILIDAD
+// Inicializar clientes de Redis. Usamos un cliente para publicar y otro para suscribir.
+// Esto asegura que el Pub/Sub funcione correctamente incluso con una sola URL (REDIS_URL).
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const publisher = new Redis(REDIS_URL); 
+const subscriber = new Redis(REDIS_URL); 
+const REDIS_CHANNEL = 'ghosty-messages'; // Canal único para todas las notificaciones
 
 async function websocketPlugin(fastify, options) {
   
-  // Estos Map guardan las conexiones activas
+  // Estos Map se mantienen. Ahora solo almacenan las conexiones **locales**
+  // para que, cuando se reciba un mensaje de Redis, sepamos a qué sockets enviarlo.
   const chatRooms = new Map();
   const dashboardRooms = new Map();
 
-  // ==================
-  //  👇 ¡AQUÍ ESTÁ LA LÓGICA QUE FALTABA! 👇
-  // ==================
+  // ===================================
+  // LÓGICA DE BROADCAST: AHORA PUBLICA A REDIS
+  // ===================================
 
   /**
-   * Envía un mensaje a todos los sockets en una sala de chat específica.
+   * Función interna para publicar un mensaje con un canal objetivo en Redis.
+   */
+  function broadcastToRedis(targetChannel, payload) {
+    const message = JSON.stringify({ channel: targetChannel, payload });
+    // Publica en el canal global de Redis
+    publisher.publish(REDIS_CHANNEL, message);
+    fastify.log.info(`📡 Publicado en Redis: ${targetChannel}`);
+  }
+
+  /**
+   * Envía un mensaje a la sala de chat a través de Redis.
    */
   function broadcastToChat(chatId, payload) {
-    const room = chatRooms.get(chatId);
-    if (!room) {
-      fastify.log.info(`Sala de chat ${chatId} no encontrada, no se envió nada.`);
-      return;
-    }
-
-    const message = JSON.stringify(payload);
-    fastify.log.info(`Enviando a sala de CHAT ${chatId} (${room.size} sockets)`);
-
-    for (const socket of room) {
-      // 1 = WebSocket.OPEN
-      if (socket.readyState === 1) { 
-        socket.send(message);
-      }
-    }
+    broadcastToRedis(`chat:${chatId}`, payload);
   }
 
   /**
-   * Envía un mensaje a todos los sockets de un dashboard de creador específico.
+   * Envía un mensaje al dashboard del creador a través de Redis.
    */
   function broadcastToDashboard(creatorId, payload) {
-    const room = dashboardRooms.get(creatorId);
-    if (!room) {
-      fastify.log.info(`Sala de DASHBOARD ${creatorId} no encontrada, no se envió nada.`);
-      return;
-    }
-
-    const message = JSON.stringify(payload);
-    fastify.log.info(`Enviando a sala de DASHBOARD ${creatorId} (${room.size} sockets)`);
-    
-    for (const socket of room) {
-      // 1 = WebSocket.OPEN
-      if (socket.readyState === 1) {
-        socket.send(message);
-      }
-    }
+    broadcastToRedis(`dashboard:${creatorId}`, payload);
   }
-  // ==================
-  //  👆 ¡FIN DE LA LÓGICA QUE FALTABA! 👆
-  // ==================
+  // ===================================
+  // FIN DE LA LÓGICA DE BROADCAST
+  // ===================================
 
 
   fastify.decorate('broadcastToChat', broadcastToChat);
@@ -66,7 +58,44 @@ async function websocketPlugin(fastify, options) {
   fastify.addHook('onReady', () => {
     fastify.log.info('Plugin de WebSocket listo. Adjuntando listener de conexión global...');
 
+    // --- Lógica de Redis SUBSCRIBE (Se ejecuta en CADA réplica) ---
+    subscriber.subscribe(REDIS_CHANNEL, (err, count) => {
+        if (err) fastify.log.error('Error al suscribirse a Redis:', err);
+        else fastify.log.info(`✅ Suscrito a ${count} canal(es) de Redis: ${REDIS_CHANNEL}`);
+    });
+
+    // Manejar mensajes entrantes de Redis y reenviarlos a los sockets locales
+    subscriber.on('message', (channel, message) => {
+        try {
+            // 1. Deserializar el mensaje de Redis para obtener el canal objetivo
+            const { channel: targetChannel, payload } = JSON.parse(message);
+            const [type, id] = targetChannel.split(':');
+            
+            let room;
+            if (type === 'chat') {
+                room = chatRooms.get(id); // Obtiene los sockets locales del chat
+            } else if (type === 'dashboard') {
+                room = dashboardRooms.get(id); // Obtiene los sockets locales del dashboard
+            }
+
+            // 2. Si la réplica actual tiene clientes conectados a esa sala/dashboard, reenvía.
+            if (room) {
+                fastify.log.info(`📩 Reenviando mensaje de Redis a ${room.size} sockets locales en ${targetChannel}`);
+                const msg = JSON.stringify(payload);
+                for (const socket of room) {
+                    if (socket.readyState === 1) { // 1 = WebSocket.OPEN
+                        socket.send(msg);
+                    }
+                }
+            }
+        } catch (e) {
+            fastify.log.error('Error procesando mensaje de Redis:', e);
+        }
+    });
+    // --- FIN Lógica de Redis SUBSCRIBE ---
+
     fastify.websocketServer.on('connection', async (socket, req) => {
+      // (Tu lógica de autenticación y manejo de conexión permanece INTACTA)
       try {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const chatId = url.searchParams.get("chatId");
