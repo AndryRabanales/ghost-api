@@ -20,11 +20,15 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 // --- CONFIGURACIÓN ---
 // --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
 // En lugar de aceptar cualquier origen, solo aceptamos el de nuestro frontend.
+// --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
+// Aceptamos ambos orígenes del frontend: con 'www' y sin 'www'.
 fastify.register(cors, { 
-  origin: process.env.FRONTEND_URL, 
-  methods: ['GET', 'POST', 'PUT', 'DELETE'] // Métodos que permitimos
-});
-
+    origin: [
+      'https://ghostmsg.space', 
+      'https://www.ghostmsg.space'
+    ], 
+    methods: ['GET', 'POST', 'PUT', 'DELETE'] // Métodos que permitimos
+  });
 // --- PLUGINS ---
 fastify.register(authPlugin);
 fastify.register(websocket);
