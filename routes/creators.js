@@ -146,38 +146,6 @@ async function creatorsRoutes(fastify, opts) {
    * Consultar vidas actuales del creator
    */
   fastify.get(
-    "/dashboard/:creatorId/lives",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
-      try {
-        const { creatorId } = req.params;
-
-        if (req.user.id !== creatorId) {
-          return reply.code(403).send({ error: "No autorizado" });
-        }
-
-        let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-        if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
-
-        creator = await refillLives(creator);
-
-        reply.send({
-          lives: creator.lives,
-          maxLives: creator.maxLives,
-          minutesToNext: minutesToNextLife(creator),
-          isPremium: creator.isPremium,
-        });
-      } catch (err) {
-        fastify.log.error(err);
-        reply.code(500).send({ error: "Error consultando vidas" });
-      }
-    }
-  );
-
-  /**
-   * Obtener todos los chats de un dashboard con último mensaje
-   */
-  fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
@@ -194,34 +162,42 @@ async function creatorsRoutes(fastify, opts) {
           include: {
             messages: {
               orderBy: { createdAt: "desc" },
-              take: 1,
+              take: 1, // Solo necesitamos el último mensaje para la preview
             },
           },
         });
 
-        const formatted = chats.map((c) => {
+        // Asegúrate de incluir 'isOpened' y usar 'c.anonAlias'
+        const formatted = chats.map((c) => { // 'c' es el objeto Chat completo de Prisma
           const lastMsg = c.messages[0] || null;
+          // *** VERIFICACIÓN CRÍTICA AQUÍ ***
+          console.log(`Chat ID: ${c.id}, DB Alias: ${c.anonAlias}`); // <-- Log para depuración
           return {
             id: c.id,
-            anonToken: c.anonToken,
+            // anonToken: c.anonToken, // Descomenta si lo necesitas en el frontend
             createdAt: c.createdAt,
+            isOpened: c.isOpened, // Importante para la UI
             lastMessage: lastMsg
               ? {
                   id: lastMsg.id,
                   from: lastMsg.from,
-                  content: lastMsg.content,
-                  alias: lastMsg.alias || "Anónimo",
+                  // Cortar preview si es muy largo
+                  content: lastMsg.content.slice(0, 80) + (lastMsg.content.length > 80 ? '...' : ''),
+                  alias: lastMsg.alias, // Puedes mantener el alias del último mensaje por contexto si quieres
                   seen: lastMsg.seen,
                   createdAt: lastMsg.createdAt,
                 }
               : null,
-            anonAlias: lastMsg?.alias || "Anónimo",
+            // --- 👇 ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ ASÍ 👇 ---
+            anonAlias: c.anonAlias || "Anónimo", // Usa el alias guardado en el Chat 'c'
+            // --- 👆 FIN DE LA LÍNEA CRÍTICA 👆 ---
           };
         });
+         console.log('Formatted Chats:', formatted.map(f => ({ id: f.id, alias: f.anonAlias }))); // <-- Log de lo que se envía
 
         reply.send(formatted);
       } catch (err) {
-        fastify.log.error(err);
+        fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
         reply.code(500).send({ error: "Error obteniendo chats del dashboard" });
       }
     }
