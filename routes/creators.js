@@ -158,42 +158,36 @@ async function creatorsRoutes(fastify, opts) {
 
         const chats = await prisma.chat.findMany({
           where: { creatorId: dashboardId },
-          orderBy: { createdAt: "desc" },
+          orderBy: { createdAt: "desc" }, // Ordena los chats (el más nuevo primero)
           include: {
             messages: {
-              orderBy: { createdAt: "desc" },
-              take: 1, // Solo necesitamos el último mensaje para la preview
+              orderBy: { createdAt: "asc" }, // Ordena mensajes (el más viejo primero)
+              take: 1,                       // Toma solo el primero
             },
           },
         });
 
-        // Asegúrate de incluir 'isOpened' y usar 'c.anonAlias'
-        const formatted = chats.map((c) => { // 'c' es el objeto Chat completo de Prisma
-          const lastMsg = c.messages[0] || null;
-          // *** VERIFICACIÓN CRÍTICA AQUÍ ***
-          console.log(`Chat ID: ${c.id}, DB Alias: ${c.anonAlias}`); // <-- Log para depuración
+        const formatted = chats.map((c) => {
+          const firstMsg = c.messages[0] || null; // Este es ahora el primer mensaje
           return {
             id: c.id,
-            // anonToken: c.anonToken, // Descomenta si lo necesitas en el frontend
             createdAt: c.createdAt,
-            isOpened: c.isOpened, // Importante para la UI
-            lastMessage: lastMsg
+            isOpened: c.isOpened,
+            // Usamos 'firstMsg' para la vista previa
+            previewMessage: firstMsg
               ? {
-                  id: lastMsg.id,
-                  from: lastMsg.from,
-                  // Cortar preview si es muy largo
-                  content: lastMsg.content.slice(0, 80) + (lastMsg.content.length > 80 ? '...' : ''),
-                  alias: lastMsg.alias, // Puedes mantener el alias del último mensaje por contexto si quieres
-                  seen: lastMsg.seen,
-                  createdAt: lastMsg.createdAt,
+                  id: firstMsg.id,
+                  from: firstMsg.from,
+                  content: firstMsg.content.slice(0, 80) + (firstMsg.content.length > 80 ? '...' : ''), // Preview del primer mensaje
+                  alias: firstMsg.alias,
+                  seen: firstMsg.seen,
+                  createdAt: firstMsg.createdAt, // Fecha del primer mensaje
                 }
               : null,
-            // --- 👇 ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ ASÍ 👇 ---
-            anonAlias: c.anonAlias || "Anónimo", // Usa el alias guardado en el Chat 'c'
-            // --- 👆 FIN DE LA LÍNEA CRÍTICA 👆 ---
+            // Usamos el alias guardado en el Chat
+            anonAlias: c.anonAlias || "Anónimo",
           };
         });
-         console.log('Formatted Chats:', formatted.map(f => ({ id: f.id, alias: f.anonAlias }))); // <-- Log de lo que se envía
 
         reply.send(formatted);
       } catch (err) {
