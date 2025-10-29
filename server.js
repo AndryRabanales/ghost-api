@@ -15,6 +15,11 @@ const dashboardChats = require("./routes/dashboardChats");
 const premiumPayments = require("./routes/premiumPayments");
 const premiumWebhook = require("./routes/premiumWebhook");
 
+// --- NUEVO ---
+const adminAuthPlugin = require("./plugins/adminAuth");
+const adminRoutes = require("./routes/admin");
+// --- FIN NUEVO ---
+
 const fastify = Fastify({ logger: true, trustProxy: true });
 
 // --- CONFIGURACIÓN ---
@@ -34,6 +39,11 @@ fastify.register(authPlugin);
 fastify.register(websocket);
 fastify.register(websocketPlugin);
 
+// --- NUEVO ---
+fastify.register(adminAuthPlugin);
+// --- FIN NUEVO ---
+
+
 // --- REGISTRAR TODAS LAS RUTAS ---
 // El archivo testSimulator.js ya contiene AMBAS rutas (/simulate y /verify-status)
 // por lo que al registrarlo aquí, ambas estarán disponibles.
@@ -45,6 +55,10 @@ fastify.register(publicRoutes);
 fastify.register(dashboardChats);
 fastify.register(premiumPayments);
 fastify.register(premiumWebhook);
+
+// --- NUEVO ---
+fastify.register(adminRoutes);
+// --- FIN NUEVO ---
 
 // --- INICIAR EL SERVIDOR ---
 const start = async () => {
@@ -59,4 +73,3 @@ const start = async () => {
 };
 
 start();
-
