@@ -5,14 +5,15 @@ const crypto = require("crypto");
 const { sanitize } = require("../utils/sanitize"); // 👈 1. IMPORTAR
 
 async function publicRoutes(fastify, opts) {
+  
+  // --- Ruta existente para ENVIAR mensajes ---
   fastify.post("/public/:publicId/messages", async (req, reply) => {
     try {
       const { publicId } = req.params;
-      // 👇 2. SANITIZAR ENTRADAS
       const cleanContent = sanitize(req.body.content);
       const cleanAlias = sanitize(req.body.alias) || "Anónimo";
 
-      if (!cleanContent || cleanContent.trim() === "") { // 👈 3. USAR VARIABLE LIMPIA
+      if (!cleanContent || cleanContent.trim() === "") {
         return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
       }
 
@@ -27,7 +28,7 @@ async function publicRoutes(fastify, opts) {
         data: {
           creatorId: creator.id,
           anonToken,
-          anonAlias: cleanAlias, // 👈 4. USAR VARIABLE LIMPIA
+          anonAlias: cleanAlias,
         },
       });
 
@@ -35,22 +36,16 @@ async function publicRoutes(fastify, opts) {
         data: {
           chatId: chat.id,
           from: "anon",
-          alias: cleanAlias, // 👈 5. USAR VARIABLE LIMPIA
-          content: cleanContent, // 👈 6. USAR VARIABLE LIMPIA
+          alias: cleanAlias,
+          content: cleanContent,
         },
       });
 
-      // ==================
-      //  👇 ¡AQUÍ ESTÁ LA MODIFICACIÓN! 👇
-      // Cambiamos el 'type' a 'message' y enviamos el mensaje completo
-      // para ser consistentes con la otra ruta.
       fastify.broadcastToDashboard(creator.id, {
         type: 'message',
-        ...message, // El objeto 'message' ya contiene el chatId
+        ...message,
       });
-      // ==================
 
-      // ... (resto de la función)
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
       const chatUrl = `${baseUrl}/chats/${anonToken}/${chat.id}`;
 
@@ -72,11 +67,8 @@ async function publicRoutes(fastify, opts) {
       return reply.code(500).send({ error: "Error enviando mensaje" });
     }
   });
-}
 
-
-// ... (tu código existente de fastify.post("/public/:publicId/messages", ...)) ...
-
+  // --- 👇 RUTA NUEVA (AHORA DENTRO DE LA FUNCIÓN) 👇 ---
   /**
    * NUEVO: Obtener información pública del creador
    */
@@ -107,7 +99,8 @@ async function publicRoutes(fastify, opts) {
       return reply.code(500).send({ error: "Error obteniendo información" });
     }
   });
+  // --- 👆 FIN DEL BLOQUE NUEVO 👆 ---
 
-// ... (Aquí va el "}" final de async function publicRoutes(fastify, opts) {)
+} // <-- Esta es la llave de cierre de publicRoutes
 
 module.exports = publicRoutes;
