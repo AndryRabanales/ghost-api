@@ -125,7 +125,13 @@ async function creatorsRoutes(fastify, opts) {
       // --- FIN DE LA LÓGICA DE EXPIRACIÓN ---
   
       const updated = await refillLives(creator);
-  
+      // --- 👇 AÑADE ESTAS LÍNEAS 👇 ---
+      // Notifica a todos los que miran la página pública que este creador está activo
+      fastify.broadcastToPublic(updated.publicId, {
+        type: 'CREATOR_ACTIVE',
+        lastActiveAt: updated.updatedAt, // Envía la marca de tiempo actualizada
+      });
+
       reply.send({
         id: updated.id,
         name: updated.name,
