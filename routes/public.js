@@ -74,4 +74,40 @@ async function publicRoutes(fastify, opts) {
   });
 }
 
+
+// ... (tu código existente de fastify.post("/public/:publicId/messages", ...)) ...
+
+  /**
+   * NUEVO: Obtener información pública del creador
+   */
+  fastify.get("/public/:publicId/info", async (req, reply) => {
+    try {
+      const { publicId } = req.params;
+
+      const creator = await prisma.creator.findUnique({
+        where: { publicId },
+        select: {
+          name: true,
+          updatedAt: true, // Usamos 'updatedAt' como indicador de "última vez activo"
+        },
+      });
+
+      if (!creator) {
+        return reply.code(404).send({ error: "Creador no encontrado" });
+      }
+
+      // Devolvemos solo los datos públicos
+      return reply.send({
+        name: creator.name || "Anónimo",
+        lastActiveAt: creator.updatedAt,
+      });
+
+    } catch (err) {
+      fastify.log.error("❌ Error en /public/:publicId/info:", err);
+      return reply.code(500).send({ error: "Error obteniendo información" });
+    }
+  });
+
+// ... (Aquí va el "}" final de async function publicRoutes(fastify, opts) {)
+
 module.exports = publicRoutes;
