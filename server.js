@@ -32,7 +32,7 @@ fastify.register(cors, {
       'https://ghostmsg.space', 
       'https://www.ghostmsg.space'
     ], 
-    methods: ['GET', 'POST', 'PUT', 'DELETE'] // Métodos que permitimos
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   });
 // --- PLUGINS ---
 fastify.register(authPlugin);
