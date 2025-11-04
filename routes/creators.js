@@ -119,47 +119,50 @@ async function creatorsRoutes(fastify, opts) {
   /**
    * Consultar chats del dashboard
    */
+/**
+   * Consultar chats del dashboard
+   */
   fastify.get(
-    "/dashboard/:dashboardId/chats",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
-      try {
-        const { dashboardId } = req.params;
-        if (req.user.id !== dashboardId) {
-          return reply.code(403).send({ error: "No autorizado" });
-        }
-
-        const chats = await prisma.chat.findMany({
-          where: { creatorId: dashboardId },
-          orderBy: { createdAt: "desc" }, 
-          include: {
-            messages: {
-              // --- 👇 CAMBIO: Obtener el ÚLTIMO mensaje para la preview ---
-              orderBy: { createdAt: "desc" }, 
-              take: 1,
-            },
-          },
-        });
-
-        // --- 👇 ESTA ES LA LÓGICA QUE FALTABA 👇 ---
-        const formatted = chats.map(chat => ({
-          id: chat.id,
-          anonAlias: chat.anonAlias || "Anónimo",
-          isOpened: chat.isOpened,
-          anonReplied: chat.anonReplied, // Campo clave para la notificación
-          createdAt: chat.createdAt,
-          previewMessage: chat.messages[0] || null // El último mensaje
-        }));
-        
-        reply.send(formatted); // Enviar la respuesta
-      
-      } catch (err) {
-        fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
-        reply.code(500).send({ error: "Error obteniendo chats" });
-      }
-  GA } // ⬅️ Llave de cierre para la ruta
-  ); // ⬅️ Paréntesis de cierre para fastify.get
-
-} // ⬅️ Llave de cierre para la función creatorsRoutes
-
-module.exports = creatorsRoutes; // ⬅️ Exportar el módulo
+      "/dashboard/:dashboardId/chats",
+      { preHandler: [fastify.authenticate] },
+      async (req, reply) => {
+        try {
+          const { dashboardId } = req.params;
+          if (req.user.id !== dashboardId) {
+            return reply.code(403).send({ error: "No autorizado" });
+          }
+  
+          const chats = await prisma.chat.findMany({
+            where: { creatorId: dashboardId },
+            orderBy: { createdAt: "desc" }, 
+            include: {
+              messages: {
+                // Obtener el ÚLTIMO mensaje para la preview
+                orderBy: { createdAt: "desc" }, 
+                take: 1,
+              },
+            },
+          });
+  
+          // --- 👇 ESTA ES LA LÓGICA QUE FALTABA 👇 ---
+          const formatted = chats.map(chat => ({
+            id: chat.id,
+            anonAlias: chat.anonAlias || "Anónimo",
+            isOpened: chat.isOpened,
+            anonReplied: chat.anonReplied, // Campo clave para la notificación
+            createdAt: chat.createdAt,
+            previewMessage: chat.messages[0] || null // El último mensaje
+          }));
+          
+          reply.send(formatted); // ⬅️ Faltaba enviar la respuesta
+        
+        } catch (err) {
+          fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
+          reply.code(500).send({ error: "Error obteniendo chats" });
+        }
+      }
+    ); // ⬅️ Faltaba el paréntesis de cierre
+  
+  } // ⬅️ Faltaba la llave de cierre de la función
+  
+  module.exports = creatorsRoutes; // ⬅️ Faltaba esta línea
