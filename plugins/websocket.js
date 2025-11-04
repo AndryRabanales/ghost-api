@@ -244,25 +244,35 @@ async function websocketPlugin(fastify, options) {
              fastify.log.info(`❌ Cliente desconectado (Dashboard: ${socket.dashboardId}, Anónimo: [${socket.anonTokens?.join(', ')}], Público: ${socket.publicIdListening})`);
              
              // --- Limpieza Dashboard (Notifica "Creator Offline") ---
-             if (socket.dashboardId) {
-                const room = dashboardRooms.get(socket.dashboardId);
-                const creatorPublicId = socket.publicId; 
-
-                if (room && creatorPublicId) {
-                    room.delete(socket);
-                    if (room.size === 0) {
-                        fastify.log.info(`Dashboard ${socket.dashboardId} (Public: ${creatorPublicId}) está OFFLINE.`);
-                        fastify.broadcastToPublic(creatorPublicId, {
-                          type: 'CREATOR_STATUS_UPDATE',
-                          status: 'offline'
-                        });
-                        dashboardRooms.delete(socket.dashboardId);
-                    }
-                } else if (room) {
-                   room.delete(socket);
-                   if (room.size === 0) dashboardRooms.delete(socket.dashboardId);
-                }
-             }
+             // --- Limpieza Dashboard (Notifica "Creator Offline") ---
+ if (socket.dashboardId) {
+  const room = dashboardRooms.get(socket.dashboardId);
+  
+  if (room) { // Solo continuar si la sala existe
+      
+      room.delete(socket); // 1. Borrar el socket de la sala
+      
+      // 2. Comprobar si la sala quedó vacía
+      if (room.size === 0) {
+          const creatorPublicId = socket.publicId; // 3. Obtener el ID para transmitir
+          
+          if (creatorPublicId) {
+              // 4. Transmitir "offline" AHORA QUE SABEMOS que la sala está vacía
+              fastify.log.info(`Dashboard ${socket.dashboardId} (Public: ${creatorPublicId}) está OFFLINE.`);
+              fastify.broadcastToPublic(creatorPublicId, {
+                type: 'CREATOR_STATUS_UPDATE',
+                status: 'offline'
+              });
+          } else {
+              // Log de seguridad por si el publicId no se encontró en el socket
+              fastify.log.warn(`Dashboard ${socket.dashboardId} está OFFLINE, pero no se pudo encontrar publicId para notificar.`);
+          }
+          
+          // 5. Borrar la sala vacía del mapa
+          dashboardRooms.delete(socket.dashboardId);
+      }
+  }
+}
              
              // --- Limpieza Anónimo (Notifica "Anon Offline") ---
              if (socket.anonTokens) {
