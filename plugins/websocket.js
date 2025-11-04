@@ -240,7 +240,7 @@ async function websocketPlugin(fastify, options) {
           return socket.close(1000, "Propósito no especificado");
         }
         
-        socket.on('close', () => {
+        socket.on('close', async () => {
              fastify.log.info(`❌ Cliente desconectado (Dashboard: ${socket.dashboardId}, Anónimo: [${socket.anonTokens?.join(', ')}], Público: ${socket.publicIdListening})`);
              
              // --- Limpieza Dashboard (Notifica "Creator Offline") ---
