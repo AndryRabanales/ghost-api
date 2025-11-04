@@ -2,62 +2,37 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
-const { sanitize } = require("../utils/sanitize"); // 👈 1. IMPORTAR (Esto ya lo tenías)
+const { sanitize } = require("../utils/sanitize");
 
 async function chatsRoutes(fastify, opts) {
 
-  /**
-   * Enviar mensaje desde el anónimo
-   */
+  // ... (ruta POST /chats/:anonToken/:chatId/messages sin cambios) ...
   fastify.post("/chats/:anonToken/:chatId/messages", async (req, reply) => {
     try {
       const { anonToken, chatId } = req.params;
-      
-      // 👇 SANITIZAR ENTRADAS
       const cleanContent = sanitize(req.body.content);
-
-      // 👇 CORRECCIÓN 1: Validar la variable LIMPIA
       if (!cleanContent || cleanContent.trim() === "") {
         return reply.code(400).send({ error: "Falta el contenido del mensaje" });
       }
-
       const chat = await prisma.chat.findFirst({
         where: { id: chatId, anonToken },
       });
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
-      
       const msg = await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
           from: "anon",
-          content: cleanContent, // 👈 CORRECCIÓN 2: Usar la variable LIMPIA
+          content: cleanContent, 
           alias: chat.anonAlias || "Anónimo",
         },
       });
-
-      // ==================================
-      // 💡 CÓDIGO CLAVE AÑADIDO: MARCAR CHAT COMO RESPONDIDO POR EL ANÓNIMO
-      // Esto hace que aparezca el indicador de "Nuevo mensaje" en el dashboard.
-      // ==================================
       await prisma.chat.update({
           where: { id: chatId },
           data: { anonReplied: true },
       });
-      // ==================================
-
-      // ¡LA MAGIA OCURRE AQUÍ! (Notificación WebSocket en tiempo real)
-      // Después de guardar, enviamos el mensaje por WebSocket a la sala correcta.
-      const payload = {
-        type: "message",
-        ...msg, // Enviamos el objeto completo del mensaje recién creado
-      };
+      const payload = { type: "message", ...msg };
       fastify.broadcastToChat(chat.id, payload);
-
-      // ==================
-      //  👇 ESTO DISPARA EL REFRESH EN EL DASHBOARD 👇
       fastify.broadcastToDashboard(chat.creatorId, payload);
-      // ==================
-      
       reply.code(201).send(msg);
     } catch (err) {
       fastify.log.error(err);
@@ -65,54 +40,38 @@ async function chatsRoutes(fastify, opts) {
     }
   });
   
-  /**
-   * Crear un chat desde el lado anónimo 
-   * (Esta ruta también necesitaba sanitización)
-   */
+  // ... (ruta POST /chats sin cambios) ...
   fastify.post("/chats", async (req, reply) => {
     try {
       const { publicId } = req.body;
-      
-      // 👇 CORRECCIÓN 3: Sanitizar AMBAS entradas
       const cleanContent = sanitize(req.body.content);
       const cleanAlias = sanitize(req.body.alias) || "Anónimo";
-
-      // 👇 CORRECCIÓN 4: Validar la variable LIMPIA
       if (!publicId || !cleanContent || cleanContent.trim() === "") {
         return reply
           .code(400)
           .send({ error: "Faltan campos obligatorios (publicId, content)" });
       }
-
       const creator = await prisma.creator.findUnique({ where: { publicId } });
       if (!creator)
         return reply.code(404).send({ error: "Creator no encontrado" });
-
       const anonToken = crypto.randomUUID();
-
-      // Crear el chat
       const chat = await prisma.chat.create({
         data: {
           creatorId: creator.id,
           anonToken,
-          anonAlias: cleanAlias, // 👈 CORRECCIÓN 5: Guardar alias limpio
-          // Nota: anonReplied es 'false' por defecto al crear el chat
+          anonAlias: cleanAlias,
         },
       });
-
-      // Insertar primer mensaje
       await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
           from: "anon",
-          content: cleanContent, // 👈 CORRECCIÓN 6: Usar content limpio
-          alias: cleanAlias,     // 👈 CORRECCIÓN 7: Usar alias limpio
+          content: cleanContent,
+          alias: cleanAlias,
         },
       });
-
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
       const chatUrl = `${baseUrl}/chats/${anonToken}/${chat.id}`;
-
       reply.code(201).send({
         chatId: chat.id,
         anonToken,
@@ -125,40 +84,32 @@ async function chatsRoutes(fastify, opts) {
     }
   });
 
-    /**
-   * Obtener chat por anonToken
-   */
+  // ... (ruta GET /chats/:anonToken sin cambios) ...
   fastify.get("/chats/:anonToken", async (req, reply) => {
     try {
       const { anonToken } = req.params;
-
-      const chat = await prisma.chat.findFirst({ // Cambiado de findUnique a findFirst
+      const chat = await prisma.chat.findFirst({
         where: { anonToken },
         include: {
           messages: { orderBy: { createdAt: "desc" }, take: 1 },
           creator: true,
         },
       });
-
       if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
-
       const last = chat.messages?.[0] || null;
-
       reply.send({
         id: chat.id,
         anonToken: chat.anonToken,
         creatorName: chat.creator?.name || null,
-        lastMessage: last
-          ? {
+        lastMessage: last ? {
               id: last.id,
               from: last.from,
               content: last.content,
               alias: last.alias || "Anónimo",
               seen: last.seen,
               createdAt: last.createdAt,
-            }
-          : null,
-        anonAlias: chat.anonAlias || last?.alias || "Anónimo", // Usar el alias del chat
+            } : null,
+        anonAlias: chat.anonAlias || last?.alias || "Anónimo",
       });
     } catch (err) {
       fastify.log.error(err);
@@ -177,7 +128,7 @@ async function chatsRoutes(fastify, opts) {
         where: { id: chatId, anonToken },
         include: {
           messages: { orderBy: { createdAt: "asc" } },
-          creator: true,
+          creator: true, // <-- El 'creator' ya estaba incluido
         },
       });
 
@@ -188,11 +139,13 @@ async function chatsRoutes(fastify, opts) {
           id: m.id,
           from: m.from,
           content: m.content,
-          alias: m.alias || chat.anonAlias || "Anónimo", // Usar el alias del chat
+          alias: m.alias || chat.anonAlias || "Anónimo",
           seen: m.seen,
           createdAt: m.createdAt,
         })),
         creatorName: chat.creator?.name || null,
+        // --- 👇 AÑADIDO: Devolver la última actividad del creador ---
+        creatorLastActive: chat.creator?.updatedAt || null
       });
     } catch (err) {
       fastify.log.error(err);
