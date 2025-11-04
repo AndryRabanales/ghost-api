@@ -141,4 +141,25 @@ async function creatorsRoutes(fastify, opts) {
           },
         });
 
-        const formatted = chats.
+        // --- 👇 ESTA ES LA LÓGICA QUE FALTABA 👇 ---
+        const formatted = chats.map(chat => ({
+          id: chat.id,
+          anonAlias: chat.anonAlias || "Anónimo",
+          isOpened: chat.isOpened,
+          anonReplied: chat.anonReplied, // Campo clave para la notificación
+          createdAt: chat.createdAt,
+          previewMessage: chat.messages[0] || null // El último mensaje
+        }));
+        
+        reply.send(formatted); // Enviar la respuesta
+      
+      } catch (err) {
+        fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
+        reply.code(500).send({ error: "Error obteniendo chats" });
+      }
+  GA } // ⬅️ Llave de cierre para la ruta
+  ); // ⬅️ Paréntesis de cierre para fastify.get
+
+} // ⬅️ Llave de cierre para la función creatorsRoutes
+
+module.exports = creatorsRoutes; // ⬅️ Exportar el módulo
