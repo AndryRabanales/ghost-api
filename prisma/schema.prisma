@@ -1,56 +1,48 @@
-// Usa tu proveedor actual (PostgreSQL en Render)
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
-/* ======================
-   CREATOR (DASHBOARD)
-   ====================== */
+/// ======================
+///    CREATOR (DASHBOARD)
+///    ======================
 model Creator {
-  id           String    @id
-  publicId     String    @unique
-  name         String?
-  email        String?   @unique
-  password     String?
-
-  messages     Message[]
-  chats        Chat[]
-
-  // ===== CAMPOS PARA VIDAS Y PREMIUM =====
-  lives        Int       @default(6)
-  maxLives     Int       @default(6)
-  lastUpdated  DateTime  @default(now())
-  isPremium    Boolean   @default(false)
-
-  // 👇 CAMPOS QUE FALTABAN PARA LA SUSCRIPCIÓN 👇
-  subscriptionId    String?   @unique
+  id                 String    @id
+  publicId           String    @unique
+  name               String?
+  isPremium          Boolean   @default(false)
+  lives              Int       @default(6)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+  lastUpdated        DateTime  @default(now())
+  maxLives           Int       @default(6)
+  email              String?   @unique
+  password           String?
+  premiumExpiresAt   DateTime?
+  subscriptionId     String?   @unique
   subscriptionStatus String?
-  premiumExpiresAt  DateTime?
-
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @default(now()) @updatedAt
+  lastActive         DateTime? @default(now())
+  chats              Chat[]
+  messages           Message[]
 }
 
-/* ======================
-   MENSAJES (NGL estilo)
-   ====================== */
+/// ======================
+///    MENSAJES (NGL estilo)
+///    ======================
 model Message {
-  id          String     @id @default(uuid())
-  creatorId   String
-  content     String
-  alias       String?
-  seen        Boolean    @default(false)
-  createdAt   DateTime   @default(now())
-
-  replyToken  String?    @unique     // link único para responder
-  responses   Response[]
-
-  creator     Creator    @relation(fields: [creatorId], references: [id])
+  id         String     @id @default(uuid())
+  content    String
+  createdAt  DateTime   @default(now())
+  alias      String?
+  creatorId  String
+  seen       Boolean    @default(false)
+  replyToken String?    @unique
+  creator    Creator    @relation(fields: [creatorId], references: [id])
+  responses  Response[]
 }
 
 model Response {
@@ -58,38 +50,34 @@ model Response {
   messageId String
   content   String
   createdAt DateTime @default(now())
-
   message   Message  @relation(fields: [messageId], references: [id])
 }
 
-/* ======================
-   CHATS BIDIRECCIONALES
-   ====================== */
+/// ======================
+///    CHATS BIDIRECCIONALES
+///    ======================
 model Chat {
-  id         String        @id @default(uuid())
-  creatorId  String
-  anonToken  String       // identifica al anónimo en este chat
-  anonAlias  String? 
-  createdAt  DateTime      @default(now())
-  isOpened   Boolean  @default(false) 
-  anonReplied Boolean @default(false) // <--- NUEVO CAMPO: Indica nueva respuesta anónima
-
-  creator    Creator       @relation(fields: [creatorId], references: [id])
-  messages   ChatMessage[]
+  id          String        @id @default(uuid())
+  creatorId   String
+  anonToken   String
+  createdAt   DateTime      @default(now())
+  anonAlias   String?
+  isOpened    Boolean       @default(false)
+  anonReplied Boolean       @default(false)
+  creator     Creator       @relation(fields: [creatorId], references: [id])
+  messages    ChatMessage[]
 }
 
 model ChatMessage {
   id        String   @id @default(uuid())
   chatId    String
-  from      String   // 'anon' o 'creator'
+  from      String
   content   String
-  alias     String?  // alias del anónimo
-  seen      Boolean  @default(false)  // Sin leer/Leído
   createdAt DateTime @default(now())
-
+  seen      Boolean  @default(false)
+  alias     String?
   chat      Chat     @relation(fields: [chatId], references: [id])
 }
-
 
 model Payment {
   id                String   @id @default(cuid())
