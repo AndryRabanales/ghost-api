@@ -65,7 +65,7 @@ const start = async () => {
   try {
     const port = process.env.PORT || 8080;
     await fastify.listen({ port, host: "0.0.0.0" });
-    fastify.log.info(`Servidor escuchando en el puerto ${port}`);
+    fastify.log.info(`Servidor escuchando en el puerto: ${port}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
