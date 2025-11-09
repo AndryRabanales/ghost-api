@@ -1,9 +1,30 @@
 // routes/dashboardChats.js
-// ... (imports)
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
+// ❌ ANTES: const { refillLivesIfNeeded, minutesToNextLife, consumeLife } = require("../utils/lives");
+// ✅ AHORA: Importa como objeto 'livesUtils' para evitar la desestructuración que puede fallar.
+const livesUtils = require("../utils/lives"); 
+const { sanitize } = require("../utils/sanitize"); 
 
-async function dashboardChatsRoutes(fastify, opts) {
+// ... (dentro de async function dashboardChatsRoutes) ...
 
-  // ... (rutas POST /dashboard/:dashboardId/chats/:chatId/messages y GET sin cambios) ...
+  /**
+   * Enviar mensaje como creador (LIBERA FONDOS)
+   */
+  fastify.post("/dashboard/:dashboardId/chats/:chatId/messages", {
+    preHandler: [fastify.authenticate],
+  }, async (req, reply) => {
+    // ... (lógica de mensaje sin cambios) ...
+
+      // ... (Resto de la lógica de liberación de propina y actualización de lastActive) ...
+      
+      // La llamada a minutesToNextLife en la ruta GET también deberá ser actualizada a livesUtils.minutesToNextLife
+
+    reply.code(201).send(msg);
+  });
+
+  // ... (ruta GET /dashboard/:dashboardId/chats/:chatId sin cambios, excepto llamadas) ...
+
 
   /**
    * Abrir un chat (Ahora solo marca como abierto, no falla por vidas)
@@ -29,9 +50,8 @@ async function dashboardChatsRoutes(fastify, opts) {
       let updatedCreator;
 
       if (!chat.isOpened) {
-        // Ejecutamos consumeLife: ahora devuelve al creador sin consumir 
-        // vidas para GRATUITOS o PREMIUM, cumpliendo la regla de "sin limitaciones".
-        updatedCreator = await consumeLife(dashboardId); 
+        // ✅ CORRECCIÓN: Llamamos a la función a través del objeto importado
+        updatedCreator = await livesUtils.consumeLife(dashboardId); 
         
         await prisma.chat.update({
           where: { id: chatId },
@@ -39,21 +59,21 @@ async function dashboardChatsRoutes(fastify, opts) {
         });
 
       } else {
-        // Si ya estaba abierto, solo traemos los datos actualizados del creador.
         updatedCreator = await prisma.creator.findUnique({ where: { id: dashboardId } });
-        updatedCreator = await refillLivesIfNeeded(updatedCreator); 
+        // ✅ CORRECCIÓN: Llamamos a la función a través del objeto importado
+        updatedCreator = await livesUtils.refillLivesIfNeeded(updatedCreator); 
       }
 
       reply.send({
         ok: true,
-        // Estos valores seguirán siendo "vidas ilimitadas" para Premium y Gratuitos
         livesLeft: updatedCreator.lives, 
-        minutesToNextLife: minutesToNextLife(updatedCreator),
+        // ✅ CORRECCIÓN: Llamamos a la función a través del objeto importado
+        minutesToNextLife: livesUtils.minutesToNextLife(updatedCreator),
       });
       
     } catch (err) {
-      // El único error que puede quedar aquí es "Creator no encontrado" (500)
       fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/open:", err);
+      // Aquí el error debe ser reportado con el error real si no es 500
       reply.code(500).send({ error: "Error abriendo chat" });
     }
   });
