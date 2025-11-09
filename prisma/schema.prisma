@@ -1,48 +1,73 @@
+// ------------------------------------------------------------------
+// --- CONFIGURACIÓN DE CONEXIÓN Y GENERACIÓN ---
+// ------------------------------------------------------------------
+
 generator client {
   provider = "prisma-client-js"
+  // Corregido: Solo mantenemos 'driverAdapters' (opcional)
+  // y eliminamos el inválido "noDBSchema" que causaba el error P1012.
+  previewFeatures = ["driverAdapters"] 
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // ¡IMPORTANTE! La URL debe ser la nueva y correcta (sin errores) de Railway
+  url      = env("DATABASE_URL") 
 }
 
+// ------------------------------------------------------------------
+// --- MODELOS DE DATOS ---
+// ------------------------------------------------------------------
+
 /// ======================
-///    CREATOR (DASHBOARD)
-///    ======================
+///     CREATOR (DASHBOARD)
+///     ======================
 model Creator {
-  id                 String    @id
-  publicId           String    @unique
-  name               String?
-  isPremium          Boolean   @default(false)
-  lives              Int       @default(6)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @default(now()) @updatedAt
-  lastUpdated        DateTime  @default(now())
-  maxLives           Int       @default(6)
-  email              String?   @unique
-  password           String?
-  premiumExpiresAt   DateTime?
-  subscriptionId     String?   @unique
-  subscriptionStatus String?
-  lastActive         DateTime? @default(now())
-  chats              Chat[]
-  messages           Message[]
+  id                     String    @id
+  publicId               String    @unique
+  name                   String?
+  isPremium              Boolean   @default(false)
+  lives                  Int       @default(6)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @default(now()) @updatedAt
+  lastUpdated            DateTime  @default(now())
+  maxLives               Int       @default(6)
+  email                  String?   @unique
+  password               String?
+  lastActive             DateTime? @default(now())
+
+  // --- 👇 CAMPOS DE SUSCRIPCIÓN (PILAR 3) ---
+  premiumExpiresAt       DateTime?
+  stripeCustomerId       String?   @unique
+  stripeSubscriptionId   String?   @unique
+  stripeSubscriptionStatus String?
+
+  // --- 👇 CAMPOS DE PROPINAS (PILAR 2) ---
+  stripeAccountId        String?   @unique
+  stripeAccountOnboarded Boolean   @default(false)
+
+  // --- 👇 CAMPOS DE FUNCIONES PRO (PILAR 3) ---
+  tipOnlyMode            Boolean   @default(false)
+
+  // --- Relaciones ---
+  chats                  Chat[]
+  messages               Message[]
+  links                  ProductLink[]
 }
 
-/// ======================
-///    MENSAJES (NGL estilo)
-///    ======================
+/// =UAL=====================
+///     MENSAJES (NGL estilo)
+///     ======================
 model Message {
-  id         String     @id @default(uuid())
-  content    String
-  createdAt  DateTime   @default(now())
-  alias      String?
-  creatorId  String
-  seen       Boolean    @default(false)
-  replyToken String?    @unique
-  creator    Creator    @relation(fields: [creatorId], references: [id])
-  responses  Response[]
+  id          String     @id @default(uuid())
+  content     String
+  createdAt   DateTime   @default(now())
+  alias       String?
+  creatorId   String
+  seen        Boolean    @default(false)
+  replyToken  String?    @unique
+  creator     Creator    @relation(fields: [creatorId], references: [id])
+  responses   Response[]
 }
 
 model Response {
@@ -54,8 +79,8 @@ model Response {
 }
 
 /// ======================
-///    CHATS BIDIRECCIONALES
-///    ======================
+///     CHATS BIDIRECCIONALES
+///     ======================
 model Chat {
   id          String        @id @default(uuid())
   creatorId   String
@@ -69,28 +94,47 @@ model Chat {
 }
 
 model ChatMessage {
-  id        String   @id @default(uuid())
-  chatId    String
-  from      String
-  content   String
-  createdAt DateTime @default(now())
-  seen      Boolean  @default(false)
-  alias     String?
-  chat      Chat     @relation(fields: [chatId], references: [id])
+  id                 String   @id @default(uuid())
+  chatId             String
+  from               String
+  content            String
+  createdAt          DateTime @default(now())
+  seen               Boolean  @default(false)
+  alias              String?
+  chat               Chat     @relation(fields: [chatId], references: [id])
+
+  // --- 👇 CAMPOS PARA PILAR 2 (PROPINAS) ---
+  tipAmount          Float?
+  tipPaymentIntentId String?  @unique
+  tipStatus          String?
 }
 
 model Payment {
-  id                String   @id @default(cuid())
-  provider          String
-  providerPaymentId String?  @unique
-  creatorId         String
-  amount            Float
-  currency          String
-  status            String
-  idempotencyKey    String   @unique
-  raw               Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  provider            String
+  providerPaymentId   String?   @unique
+  creatorId           String
+  amount              Float
+  currency            String
+  status              String
+  idempotencyKey      String    @unique
+  raw                 Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([creatorId])
+}
+
+/// ======================
+///     CATÁLOGO PRO (PILAR 3)
+///     ======================
+model ProductLink {
+  id        String   @id @default(uuid())
+  creatorId String
+  title     String
+  url       String
+  createdAt DateTime @default(now())
+  creator   Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@index([creatorId])
 }

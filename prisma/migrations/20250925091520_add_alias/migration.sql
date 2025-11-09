@@ -1,1 +1,0 @@
-ALTER TABLE "Message" ADD COLUMN "alias" TEXT;
