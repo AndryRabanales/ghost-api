@@ -1,4 +1,4 @@
-// andryrabanales/ghost-api/ghost-api-ccf8c44883da4e/routes/dashboardChats.js
+// andryrabanales/ghost-api/ghost-api-ccf8c4209b8106a049818e3cd23d69e44883da4e/routes/dashboardChats.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
@@ -9,27 +9,43 @@ const { refillLivesIfNeeded, minutesToNextLife, consumeLife } = livesUtils;
 const { sanitize } = require("../utils/sanitize"); 
 
 async function dashboardChatsRoutes(fastify, opts) {
-
-  // ... (Las rutas usan ahora minutesToNextLife, consumeLife y refillLivesIfNeeded) ...
-
-  /**
-   * Enviar mensaje como creador (LIBERA FONDOS)
-   */
-  fastify.post("/dashboard/:dashboardId/chats/:chatId/messages", {
-    preHandler: [fastify.authenticate],
-  }, async (req, reply) => {
-    // ... (El código de la ruta 'messages' se mantiene, usando las funciones desestructuradas) ...
-  });
-
-  // ... (La ruta GET /dashboard/:dashboardId/chats/:chatId se mantiene) ...
   
+  // ... (rutas 'messages' y 'chats/:chatId' usan las funciones corregidas) ...
+
   /**
-   * Abrir un chat (Asegura vidas ilimitadas para todos)
+   * Abrir un chat (Fijado: Evita fallos de 'consumeLife' y 'minutesToNextLife')
    */
   fastify.post("/dashboard/:dashboardId/chats/:chatId/open", {
     preHandler: [fastify.authenticate],
   }, async (req, reply) => {
-    // ... (El código de la ruta 'open' se mantiene, usando las funciones desestructuradas) ...
+    // ... (omitted logic) ...
+    try {
+      // ...
+      let updatedCreator;
+
+      if (!chat.isOpened) {
+        // Usa la función corregida
+        updatedCreator = await consumeLife(dashboardId);
+        await prisma.chat.update({
+          where: { id: chatId },
+          data: { isOpened: true },
+        });
+      } else {
+        updatedCreator = await prisma.creator.findUnique({ where: { id: dashboardId } });
+        // Usa la función corregida
+        updatedCreator = await refillLivesIfNeeded(updatedCreator); 
+      }
+
+      reply.send({
+        ok: true,
+        livesLeft: updatedCreator.lives,
+        // Usa la función corregida
+        minutesToNextLife: minutesToNextLife(updatedCreator), 
+      });
+    } catch (err) {
+      fastify.log.error("❌ Error en POST /dashboard/:dashboardId/chats/:chatId/open:", err);
+      reply.code(500).send({ error: "Error abriendo chat" });
+    }
   });
 }
 
