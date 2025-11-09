@@ -7,38 +7,42 @@ const { sanitize } = require("../utils/sanitize");
 async function chatsRoutes(fastify, opts) {
 
   // ... (ruta POST /chats/:anonToken/:chatId/messages sin cambios) ...
-  fastify.post("/chats/:anonToken/:chatId/messages", async (req, reply) => {
-    try {
-      const { anonToken, chatId } = req.params;
-      const cleanContent = sanitize(req.body.content);
-      if (!cleanContent || cleanContent.trim() === "") {
-        return reply.code(400).send({ error: "Falta el contenido del mensaje" });
-      }
-      const chat = await prisma.chat.findFirst({
-        where: { id: chatId, anonToken },
-      });
-      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
-      const msg = await prisma.chatMessage.create({
-        data: {
-          chatId: chat.id,
-          from: "anon",
-          content: cleanContent, 
-          alias: chat.anonAlias || "Anónimo",
-        },
-      });
-      await prisma.chat.update({
-          where: { id: chatId },
-          data: { anonReplied: true },
-      });
-      const payload = { type: "message", ...msg };
-      fastify.broadcastToChat(chat.id, payload);
-      fastify.broadcastToDashboard(chat.creatorId, payload);
-      reply.code(201).send(msg);
-    } catch (err) {
-      fastify.log.error(err);
-      reply.code(500).send({ error: "Error enviando mensaje" });
-    }
-  });
+  fastify.post("/:anonToken/:chatId/messages", async (req, reply) => {
+    try {
+      const { anonToken, chatId } = req.params;
+      
+      // ¡IMPORTANTE! Obtenemos el contenido ORIGINAL primero
+      const originalContent = req.body.content;
+
+      // --- BLOQUE DE MODERACIÓN DE IA (CORREGIDO) ---
+      if (!originalContent || originalContent.trim().length < 1) {
+        // ¡CORREGIDO! Usando 'reply.code().send()'
+        return reply.code(400).send({ error: "El mensaje está vacío." });
+      }
+      
+      try {
+        // ¡CORREGIDO! Analizamos el 'originalContent'
+        const analysis = await analyzeMessage(originalContent);
+        if (!analysis.isSafe) {
+          // ¡CORREGIDO! Usando 'reply.code().send()'
+          return reply.code(400).send({ error: analysis.reason || 'Mensaje bloqueado por moderación.' });
+        }
+      } catch (aiError) {
+        console.error("Error llamando a la IA (chats):", aiError);
+        // Si la IA falla, lo dejamos pasar.
+      }
+      // --- FIN DEL BLOQUE ---
+
+      // (El resto de tu lógica de esta ruta, que ya tenías)
+      // ... (buscar el chat, sanitizar el 'originalContent', crear el mensaje, etc.)
+
+      // ... (Asegúrate de que el resto de tu lógica esté aquí) ...
+      
+    } catch (err) {
+      fastify.log.error("❌ Error en POST /:anonToken/:chatId/messages:", err);
+      return reply.code(500).send({ error: "Error enviando mensaje" });
+    }
+  });
   
   // ... (ruta POST /chats sin cambios) ...
   fastify.post("/chats", async (req, reply) => {

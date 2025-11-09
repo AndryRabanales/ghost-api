@@ -2,20 +2,43 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
-const { sanitize } = require("../utils/sanitize"); // 👈 1. IMPORTAR
+const { sanitize } = require("../utils/sanitize"); //
+const { analyzeMessage } = require('../utils/aiAnalyzer'); //
 
 async function publicRoutes(fastify, opts) {
-  
+
   // --- Ruta existente para ENVIAR mensajes ---
   fastify.post("/public/:publicId/messages", async (req, reply) => {
     try {
       const { publicId } = req.params;
-      const cleanContent = sanitize(req.body.content);
-      const cleanAlias = sanitize(req.body.alias) || "Anónimo";
+      
+      // ¡IMPORTANTE! Obtenemos el contenido ORIGINAL primero
+      const originalContent = req.body.content;
+      const originalAlias = req.body.alias || "Anónimo";
 
-      if (!cleanContent || cleanContent.trim() === "") {
-        return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
+      // --- BLOQUE DE MODERACIÓN DE IA (MOVIDO ARRIBA Y CORREGIDO) ---
+      if (!originalContent || originalContent.trim().length < 3) {
+        // ¡CORREGIDO! Usando 'reply.code().send()'
+        return reply.code(400).send({ error: "El mensaje es muy corto." });
       }
+
+      try {
+        // ¡CORREGIDO! Analizamos el 'originalContent'
+        const analysis = await analyzeMessage(originalContent);
+        if (!analysis.isSafe) {
+          // Si no es seguro, bloquea el mensaje
+          // ¡CORREGIDO! Usando 'reply.code().send()'
+          return reply.code(400).send({ error: analysis.reason || 'Mensaje bloqueado por moderación.' });
+        }
+      } catch (aiError) {
+        console.error("Error llamando a la IA (public):", aiError);
+        // Si la IA falla, lo dejamos pasar por ahora para no afectar al usuario.
+      }
+      // --- FIN DEL BLOQUE ---
+
+      // Ahora que el mensaje es SEGURO, lo sanitizamos para guardarlo
+      const cleanContent = sanitize(originalContent);
+      const cleanAlias = sanitize(originalAlias);
 
       const creator = await prisma.creator.findUnique({ where: { publicId } });
       if (!creator) {
@@ -37,7 +60,7 @@ async function publicRoutes(fastify, opts) {
           chatId: chat.id,
           from: "anon",
           alias: cleanAlias,
-          content: cleanContent,
+          content: cleanContent, // Guardamos el contenido ya limpio
         },
       });
 
@@ -68,10 +91,7 @@ async function publicRoutes(fastify, opts) {
     }
   });
 
-  // --- 👇 RUTA NUEVA (AHORA DENTRO DE LA FUNCIÓN) 👇 ---
-  /**
-   * NUEVO: Obtener información pública del creador
-   */
+  // --- Ruta de Info (esta ya estaba bien) ---
   fastify.get("/public/:publicId/info", async (req, reply) => {
     try {
       const { publicId } = req.params;
@@ -80,7 +100,7 @@ async function publicRoutes(fastify, opts) {
         where: { publicId },
         select: {
           name: true,
-          updatedAt: true, // Usamos 'updatedAt' como indicador de "última vez activo"
+          updatedAt: true,
         },
       });
 
@@ -88,7 +108,6 @@ async function publicRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
 
-      // Devolvemos solo los datos públicos
       return reply.send({
         name: creator.name || "Anónimo",
         lastActiveAt: creator.updatedAt,
@@ -99,7 +118,6 @@ async function publicRoutes(fastify, opts) {
       return reply.code(500).send({ error: "Error obteniendo información" });
     }
   });
-  // --- 👆 FIN DEL BLOQUE NUEVO 👆 ---
 
 } // <-- Esta es la llave de cierre de publicRoutes
 
