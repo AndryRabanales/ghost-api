@@ -1,4 +1,4 @@
-// utils/lives.js
+// andryrabanales/ghost-api/ghost-api-ccf8c4209b8106a049818e3cd23d69e44883da4e/utils/lives.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
@@ -32,51 +32,32 @@ async function refillLivesIfNeeded(creator) {
 
 /**
  * Consume 1 vida de forma atómica.
- * - Refresca vidas si corresponde.
- * - Si es premium, no decrementa.
- * - Si no hay vidas, lanza un Error.
+ * * MODIFICADO: 
+ * - Si es Premium, no se decrementa (beneficio Premium).
+ * - Si es GRATUITO, no se consume vida (funcionalidad base ILIMITADA).
  */
 async function consumeLife(creatorId) {
   // 1) obtener creator
   let creator = await prisma.creator.findUnique({ where: { id: creatorId } });
   if (!creator) throw new Error("Creator no encontrado");
 
-  // 2) recalcular vidas si corresponde
+  // 2) recalcular vidas si corresponde (Solo para actualizar lastUpdated si fuera necesario)
   creator = await refillLivesIfNeeded(creator);
 
-  if (creator.isPremium) {
-    // premium = no consumir
-    return creator;
+  // IMPLEMENTACIÓN CLAVE: Si no es Premium, se devuelve inmediatamente.
+  if (!creator.isPremium) {
+    // Usuario GRATUITO: Vidas Ilimitadas por defecto (Pilar 1).
+    return creator; 
   }
-
-  if (creator.lives <= 0) {
-    throw new Error("Sin vidas disponibles");
-  }
-
-  // 3) operación atómica: decrementar solo si lives > 0
-  const updateResult = await prisma.creator.updateMany({
-    where: { id: creatorId, lives: { gt: 0 }, isPremium: false },
-    data: {
-      lives: { decrement: 1 },
-      lastUpdated: new Date(),
-    },
-  });
-
-  if (updateResult.count === 0) {
-    // otra petición consumió la última vida, o es premium
-    // recargar creator para estado real y lanzar error
-    creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-    if (creator.isPremium) return creator;
-    throw new Error("Sin vidas disponibles (concurrency)");
-  }
-
-  // 4) traer el creator actualizado
-  creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+  
+  // Si llega aquí y es Premium, el refillLivesIfNeeded ya se ejecutó al inicio.
   return creator;
 }
 
 function minutesToNextLife(creator) {
-  if (!creator || creator.isPremium) return 0;
+  // Ya que todos son ilimitados (a menos que reintroduzcamos el límite), 
+  // este valor será siempre 0 para los no-Premium.
+  if (!creator || creator.isPremium) return 0; 
   if (creator.lives >= creator.maxLives) return 0;
 
   const lastUpdated = creator.lastUpdated || new Date();
