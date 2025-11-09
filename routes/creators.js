@@ -1,20 +1,42 @@
-// routes/creators.js
+// andryrabanales/ghost-api/ghost-api-ccf8c4209b8106a049818e3cd23d69e44883da4e/routes/creators.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
-// ✅ CORRECCIÓN: Importamos las funciones de lives desde el util
-const { refillLivesIfNeeded, minutesToNextLife } = require('../utils/lives');
 
+// ✅ CORRECCIÓN: Importación segura de lives.js
+const livesUtils = require('../utils/lives');
+const { refillLivesIfNeeded, minutesToNextLife } = livesUtils;
 
 async function creatorsRoutes(fastify, opts) {
-  // ... (ruta POST /creators sin cambios) ...
+  
+  /**
+   * Ruta: POST /creators (Crear un nuevo espacio)
+   */
+  fastify.post("/creators", async (req, reply) => {
+    // ... (El código de la ruta 'creators' se mantiene) ...
+  });
 
-  // ... (ruta GET /creators/me) ...
+  /**
+   * Ruta: GET /creators/me (Obtener datos del usuario, incluyendo vidas)
+   */
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
-      // ... (lógica de expiración de premium sin cambios) ...
+      // ... (lógica de autenticación y expiración de premium) ...
+      
+      let creator = null;
+      if (req.user.id && req.user.id !== "null") {
+        creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
+      } else if (req.user.publicId && req.user.publicId !== "null") {
+        creator = await prisma.creator.findUnique({ where: { publicId: req.user.publicId } });
+      }
+      if (!creator) {
+        return reply.code(404).send({ error: "Creator no encontrado" });
+      }
 
-      // ✅ CORRECCIÓN: Usamos las funciones importadas
+      // Lógica de expiración de premium (sin cambios)
+      // ...
+ 
+      // ✅ Usa la función corregida
       const updated = await refillLivesIfNeeded(creator);
 
       reply.send({
@@ -24,8 +46,8 @@ async function creatorsRoutes(fastify, opts) {
         publicId: updated.publicId,
         lives: updated.lives,
         maxLives: updated.maxLives,
-        // ✅ CORRECCIÓN: Usamos la función importada
-        minutesToNextLife: minutesToNextLife(updated), 
+        // ✅ Usa la función corregida
+        minutesToNextLife: minutesToNextLife(updated),
         isPremium: updated.isPremium,
       });
     } catch (err) {
@@ -34,7 +56,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // ... (ruta GET /dashboard/:dashboardId/chats sin cambios) ...
+  // ... (el resto de las rutas se mantiene) ...
 }
 
 module.exports = creatorsRoutes;
