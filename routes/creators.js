@@ -2,15 +2,14 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
-
-// ✅ CORRECCIÓN: Importación estable
 const livesUtils = require('../utils/lives'); 
+
+// --- AÑADIDO: Importar Stripe ---
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function creatorsRoutes(fastify, opts) {
   
-  /**
-   * Ruta: POST /creators (Funcionalidad base)
-   */
+  // ... (ruta POST /creators sin cambios) ...
   fastify.post("/creators", async (req, reply) => {
     try {
       const { name } = req.body;
@@ -46,9 +45,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  /**
-   * Ruta: GET /creators/me (Obtiene estado y vidas)
-   */
+  // ... (ruta GET /creators/me con cálculo de balance, sin cambios) ...
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -61,7 +58,7 @@ async function creatorsRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creator no encontrado" });
       }
 
-      // --- LÓGICA DE EXPIRACIÓN DE PREMIUM ---
+      // --- LÓGICA DE EXPIRACIÓN DE PREMIUM (sin cambios) ---
       if (creator.isPremium && creator.premiumExpiresAt && new Date() > new Date(creator.premiumExpiresAt)) {
         creator = await prisma.creator.update({
           where: { id: creator.id },
@@ -70,29 +67,107 @@ async function creatorsRoutes(fastify, opts) {
         fastify.log.info(`La suscripción Premium para ${creator.id} ha expirado.`);
       }
  
-      // ✅ Usa la función a través del objeto importado
+      // --- LÓGICA DE VIDAS (sin cambios) ---
       const updated = await livesUtils.refillLivesIfNeeded(creator);
+
+      // --- CÁLCULO DE BALANCE (sin cambios) ---
+      const availableBalanceResult = await prisma.chatMessage.aggregate({
+        _sum: { tipAmount: true },
+        where: {
+          chat: { creatorId: creator.id },
+          tipStatus: 'FULFILLED',
+          from: 'anon'
+        },
+      });
+      const pendingBalanceResult = await prisma.chatMessage.aggregate({
+        _sum: { tipAmount: true },
+        where: {
+          chat: { creatorId: creator.id },
+          tipStatus: 'PENDING',
+          from: 'anon'
+        },
+      });
+      const availableBalance = availableBalanceResult._sum.tipAmount || 0;
+      const pendingBalance = pendingBalanceResult._sum.tipAmount || 0;
 
       reply.send({
         id: updated.id,
         name: updated.name,
         email: updated.email,
         publicId: updated.publicId,
-        lives: updated.lives,
+        lives: updated.lives, 
         maxLives: updated.maxLives,
-        // ✅ Usa la función a través del objeto importado
         minutesToNextLife: livesUtils.minutesToNextLife(updated), 
         isPremium: updated.isPremium,
+        stripeAccountId: updated.stripeAccountId, 
+        stripeAccountOnboarded: updated.stripeAccountOnboarded,
+        availableBalance: availableBalance,
+        pendingBalance: pendingBalance
       });
     } catch (err) {
       fastify.log.error("❌ Error en GET /creators/me:", err);
       reply.code(500).send({ error: "Error obteniendo perfil del creator" });
     }
   });
-
+  
+  // --- INICIO DE LA NUEVA RUTA ---
   /**
-   * Consultar chats del dashboard
+   * Ruta: POST /creators/stripe-onboarding
+   * Crea o actualiza una cuenta de Stripe Connect y devuelve un link
+   * para que el usuario complete su registro (onboarding).
    */
+  fastify.post(
+    "/creators/stripe-onboarding",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
+        if (!creator) {
+          return reply.code(404).send({ error: "Creador no encontrado" });
+        }
+
+        let stripeAccountId = creator.stripeAccountId;
+        let account;
+
+        // 1. Si el creador NO tiene un ID de Stripe, creamos una cuenta Express
+        if (!stripeAccountId) {
+          account = await stripe.accounts.create({
+            type: 'express',
+            email: creator.email,
+            metadata: {
+              creatorId: creator.id,
+            },
+          });
+          stripeAccountId = account.id;
+
+          // Guardamos el nuevo ID en nuestra base de datos
+          await prisma.creator.update({
+            where: { id: creator.id },
+            data: { stripeAccountId: stripeAccountId },
+          });
+          fastify.log.info(`Nueva cuenta de Stripe Connect creada: ${stripeAccountId}`);
+        }
+
+        // 2. Creamos un Link de Onboarding para esa cuenta
+        const accountLink = await stripe.accountLinks.create({
+          account: stripeAccountId,
+          refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?stripe_onboarding=refresh`,
+          return_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?stripe_onboarding=success`,
+          type: 'account_onboarding',
+        });
+
+        // 3. Devolvemos la URL del link al frontend
+        reply.send({ onboarding_url: accountLink.url });
+
+      } catch (err) {
+        fastify.log.error("❌ Error en /creators/stripe-onboarding:", err);
+        reply.code(500).send({ error: "Error al crear el link de Stripe Connect", details: err.message });
+      }
+    }
+  );
+  // --- FIN DE LA NUEVA RUTA ---
+
+  // ... (ruta GET /dashboard/:dashboardId/chats sin cambios) ...
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
