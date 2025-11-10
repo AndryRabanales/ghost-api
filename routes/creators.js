@@ -4,12 +4,12 @@ const prisma = new PrismaClient();
 const crypto = require("crypto");
 const livesUtils = require('../utils/lives'); 
 
-// --- AÑADIDO: Importar Stripe ---
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// --- ELIMINADO: No importamos Stripe para la simulación ---
+// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function creatorsRoutes(fastify, opts) {
   
-  // ... (ruta POST /creators sin cambios) ...
+  // ... (ruta POST /creators - sin cambios) ...
   fastify.post("/creators", async (req, reply) => {
     try {
       const { name } = req.body;
@@ -45,7 +45,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // ... (ruta GET /creators/me con cálculo de balance, sin cambios) ...
+  // ... (ruta GET /creators/me con cálculo de balance - sin cambios) ...
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -110,64 +110,51 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
   
-  // --- INICIO DE LA NUEVA RUTA ---
+  // --- INICIO DE LA RUTA MODIFICADA (SIMULADA) ---
   /**
-   * Ruta: POST /creators/stripe-onboarding
-   * Crea o actualiza una cuenta de Stripe Connect y devuelve un link
-   * para que el usuario complete su registro (onboarding).
+   * Ruta: POST /creators/stripe-onboarding (Simulada)
+   * Devuelve una URL falsa de onboarding para probar el flujo.
    */
   fastify.post(
     "/creators/stripe-onboarding",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       try {
+        // 1. Verificamos que el creador exista
         const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
         if (!creator) {
           return reply.code(404).send({ error: "Creador no encontrado" });
         }
 
-        let stripeAccountId = creator.stripeAccountId;
-        let account;
+        fastify.log.info(`✅ (SIMULADO) Link de Onboarding generado para ${creator.id}`);
 
-        // 1. Si el creador NO tiene un ID de Stripe, creamos una cuenta Express
-        if (!stripeAccountId) {
-          account = await stripe.accounts.create({
-            type: 'express',
-            email: creator.email,
-            metadata: {
-              creatorId: creator.id,
-            },
-          });
-          stripeAccountId = account.id;
-
-          // Guardamos el nuevo ID en nuestra base de datos
-          await prisma.creator.update({
-            where: { id: creator.id },
-            data: { stripeAccountId: stripeAccountId },
-          });
-          fastify.log.info(`Nueva cuenta de Stripe Connect creada: ${stripeAccountId}`);
-        }
-
-        // 2. Creamos un Link de Onboarding para esa cuenta
-        const accountLink = await stripe.accountLinks.create({
-          account: stripeAccountId,
-          refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?stripe_onboarding=refresh`,
-          return_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?stripe_onboarding=success`,
-          type: 'account_onboarding',
+        // 2. Devolvemos una URL de Stripe falsa (simulada)
+        // Usamos una URL real de Stripe para que la redirección parezca legítima
+        const simulatedStripeUrl = "https://connect.stripe.com/setup/s/simulated-onboarding-link";
+        
+        // 3. (Importante para la simulación) Marcamos al usuario como "onboarded" en nuestra DB
+        //    para que la próxima vez que cargue el dashboard, vea el cambio.
+        await prisma.creator.update({
+          where: { id: creator.id },
+          // Simulamos que el onboarding fue exitoso
+          data: { 
+            stripeAccountOnboarded: true, 
+            stripeAccountId: "sim_acct_12345" // Un ID falso para simular
+          },
         });
 
-        // 3. Devolvemos la URL del link al frontend
-        reply.send({ onboarding_url: accountLink.url });
+        // 4. Enviamos la URL falsa
+        reply.send({ onboarding_url: simulatedStripeUrl });
 
       } catch (err) {
-        fastify.log.error("❌ Error en /creators/stripe-onboarding:", err);
-        reply.code(500).send({ error: "Error al crear el link de Stripe Connect", details: err.message });
+        fastify.log.error("❌ Error en /creators/stripe-onboarding (Simulado):", err);
+        reply.code(500).send({ error: "Error al simular el link de Stripe Connect" });
       }
     }
   );
-  // --- FIN DE LA NUEVA RUTA ---
+  // --- FIN DE LA RUTA MODIFICADA ---
 
-  // ... (ruta GET /dashboard/:dashboardId/chats sin cambios) ...
+  // ... (ruta GET /dashboard/:dashboardId/chats - sin cambios) ...
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
