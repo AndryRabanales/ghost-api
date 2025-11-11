@@ -1,8 +1,9 @@
-// andryrabanales/ghost-api/ghost-api-ccf8c4209b8106a049818e3cd23d69e44883da4e/routes/creators.js
+// andryrabanales/ghost-api/ghost-api-abfc35e2f3750c5ab2764fb71701208dc948b301/routes/creators.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 const livesUtils = require('../utils/lives'); 
+const { sanitize } = require("../utils/sanitize"); // Necesario para sanitizar el contrato (S3)
 
 // --- ELIMINADO: No importamos Stripe para la simulación ---
 // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -45,7 +46,8 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // ... (ruta GET /creators/me con cálculo de balance - sin cambios) ...
+  // --- RUTA (GET /creators/me) ---
+  // Incluye el cálculo de balance (P1, P2), estado Premium y vidas.
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -70,7 +72,7 @@ async function creatorsRoutes(fastify, opts) {
       // --- LÓGICA DE VIDAS (sin cambios) ---
       const updated = await livesUtils.refillLivesIfNeeded(creator);
 
-      // --- CÁLCULO DE BALANCE (sin cambios) ---
+      // --- CÁLCULO DE BALANCE (P1, P2) ---
       const availableBalanceResult = await prisma.chatMessage.aggregate({
         _sum: { tipAmount: true },
         where: {
@@ -102,7 +104,9 @@ async function creatorsRoutes(fastify, opts) {
         stripeAccountId: updated.stripeAccountId, 
         stripeAccountOnboarded: updated.stripeAccountOnboarded,
         availableBalance: availableBalance,
-        pendingBalance: pendingBalance
+        pendingBalance: pendingBalance,
+        // S3: Incluimos el contrato para el componente de configuración
+        premiumContract: updated.premiumContract || "Respuesta de alta calidad." 
       });
     } catch (err) {
       fastify.log.error("❌ Error en GET /creators/me:", err);
@@ -110,40 +114,29 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
   
-  // --- INICIO DE LA RUTA MODIFICADA (SIMULADA) ---
-  /**
-   * Ruta: POST /creators/stripe-onboarding (Simulada)
-   * Devuelve una URL falsa de onboarding para probar el flujo.
-   */
+  // --- RUTA (P5): SIMULACIÓN DE STRIPE ONBOARDING ---
   fastify.post(
     "/creators/stripe-onboarding",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       try {
-        // 1. Verificamos que el creador exista
         const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
         if (!creator) {
           return reply.code(404).send({ error: "Creador no encontrado" });
         }
 
         fastify.log.info(`✅ (SIMULADO) Link de Onboarding generado para ${creator.id}`);
-
-        // 2. Devolvemos una URL de Stripe falsa (simulada)
-        // Usamos una URL real de Stripe para que la redirección parezca legítima
         const simulatedStripeUrl = "https://connect.stripe.com/setup/s/simulated-onboarding-link";
         
-        // 3. (Importante para la simulación) Marcamos al usuario como "onboarded" en nuestra DB
-        //    para que la próxima vez que cargue el dashboard, vea el cambio.
+        // Simulamos que el onboarding fue exitoso
         await prisma.creator.update({
           where: { id: creator.id },
-          // Simulamos que el onboarding fue exitoso
           data: { 
             stripeAccountOnboarded: true, 
-            stripeAccountId: "sim_acct_12345" // Un ID falso para simular
+            stripeAccountId: "sim_acct_12345"
           },
         });
 
-        // 4. Enviamos la URL falsa
         reply.send({ onboarding_url: simulatedStripeUrl });
 
       } catch (err) {
@@ -152,9 +145,40 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
-  // --- FIN DE LA RUTA MODIFICADA ---
 
-  // ... (ruta GET /dashboard/:dashboardId/chats - sin cambios) ...
+  // --- RUTA (S3): Actualizar el contrato Premium. ---
+  fastify.post(
+    "/creators/:creatorId/update-contract",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const { creatorId } = req.params;
+      const { premiumContract } = req.body;
+
+      if (req.user.id !== creatorId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
+
+      if (!premiumContract || premiumContract.trim().length < 5) {
+        return reply.code(400).send({ error: "El contrato debe tener al menos 5 caracteres." });
+      }
+
+      try {
+        const updatedCreator = await prisma.creator.update({
+          where: { id: creatorId },
+          data: { premiumContract: sanitize(premiumContract) },
+          select: { premiumContract: true }
+        });
+
+        reply.send(updatedCreator);
+      } catch (err) {
+        fastify.log.error("❌ Error al actualizar contrato:", err);
+        reply.code(500).send({ error: "Error interno al guardar el contrato." });
+      }
+    }
+  );
+
+  // --- RUTA (GET /dashboard/:dashboardId/chats) ---
+  // Incluye la Priorización por Precio (S6).
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
@@ -167,10 +191,9 @@ async function creatorsRoutes(fastify, opts) {
   
         const chats = await prisma.chat.findMany({
           where: { creatorId: dashboardId },
-          orderBy: { createdAt: "desc" }, 
+          // Quitamos el orderBy por createdAt en el root query para hacerlo en JS
           include: {
             messages: {
-              // Obtener el ÚLTIMO mensaje para la preview
               orderBy: { createdAt: "desc" }, 
               take: 1,
             },
@@ -185,7 +208,25 @@ async function creatorsRoutes(fastify, opts) {
           createdAt: chat.createdAt,
           previewMessage: chat.messages[0] || null // El último mensaje
         }));
-          
+        
+        // --- IMPLEMENTACIÓN S6: Ordenar por Monto de Propina (Prioridad) ---
+        formatted.sort((a, b) => {
+            // 1. Obtener la propina del último mensaje (usamos 0 si no hay o es null)
+            const tipA = a.previewMessage?.tipAmount || 0;
+            const tipB = b.previewMessage?.tipAmount || 0;
+            
+            // Prioridad principal: Monto de propina (mayor a menor)
+            if (tipA !== tipB) {
+                return tipB - tipA; // Mayor propina primero
+            }
+            
+            // Prioridad secundaria: Fecha del último mensaje (más reciente primero)
+            const dateA = new Date(a.previewMessage?.createdAt || a.createdAt).getTime();
+            const dateB = new Date(b.previewMessage?.createdAt || b.createdAt).getTime();
+            return dateB - dateA; // Más reciente primero
+        });
+        // --- FIN IMPLEMENTACIÓN S6 ---
+        
         reply.send(formatted); 
       
       } catch (err) {

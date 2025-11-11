@@ -4,8 +4,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  // Corregido: Solo mantenemos 'driverAdapters' (opcional)
-  // y eliminamos el inválido "noDBSchema" que causaba el error P1012.
   previewFeatures = ["driverAdapters"] 
 }
 
@@ -42,12 +40,20 @@ model Creator {
   stripeSubscriptionId   String?   @unique
   stripeSubscriptionStatus String?
 
-  // --- 👇 CAMPOS DE PROPINAS (PILAR 2) ---
+  // --- 👇 CAMPOS DE PROPINAS Y PAGO (PILAR 2, P1, P5) ---
   stripeAccountId        String?   @unique
   stripeAccountOnboarded Boolean   @default(false)
 
-  // --- 👇 CAMPOS DE FUNCIONES PRO (PILAR 3) ---
+  // --- 👇 CAMPOS DE FUNCIONES PRO / ESCCASEZ (PILAR 2: S1, S3) ---
   tipOnlyMode            Boolean   @default(false)
+  
+  // S1: Límite de mensajes Premium
+  dailyMsgLimit          Int       @default(30) 
+  msgCountToday          Int       @default(0)  
+  msgCountLastReset      DateTime  @default(now()) 
+
+  // S3: Contrato de Contenido Explicito
+  premiumContract        String?   @default("Respuesta de alta calidad.") // <--- CAMPO AÑADIDO (S3)
 
   // --- Relaciones ---
   chats                  Chat[]
