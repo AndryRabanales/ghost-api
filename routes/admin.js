@@ -3,47 +3,64 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 async function adminRoutes(fastify, opts) {
+  
+  // ... (ruta POST /admin/set-premium se mantiene) ...
+
   /**
-   * Ruta segura para cambiar el estado premium de un usuario por email.
-   * Espera un body: { "email": "usuario@gmail.com", "status": true }
+   * NUEVA RUTA (P3): Simulación de Cron Job para Reembolsos por Ausencia.
+   * Marca como 'NOT_FULFILLED' los pagos PENDING con más de 72 horas.
    */
   fastify.post(
-    '/admin/set-premium',
-    // Usamos el plugin de autenticación que acabamos de crear
-    { preHandler: [fastify.adminAuthenticate] },
+    '/admin/check-refunds',
+    // SOLO accesible con la API Key de Admin (P5)
+    { preHandler: [fastify.adminAuthenticate] }, 
     async (req, reply) => {
-      const { email, status } = req.body;
 
-      if (!email || typeof status !== 'boolean') {
-        return reply.code(400).send({ 
-          error: 'Email (string) y status (boolean) son requeridos.' 
-        });
-      }
+      // Tiempo límite: 72 horas antes de ahora
+      const seventyTwoHoursAgo = new Date(Date.now() - (72 * 60 * 60 * 1000));
 
       try {
-        const updatedCreator = await prisma.creator.update({
-          where: { email: email },
-          data: {
-            isPremium: status,
-            // Opcional: poner un estado para saber que fue un admin
-            subscriptionStatus: status ? 'admin_granted' : 'admin_revoked',
+        const outdatedTips = await prisma.chatMessage.findMany({
+          where: {
+            tipStatus: 'PENDING',
+            createdAt: {
+              lt: seventyTwoHoursAgo, // Creado antes del límite de 72 horas
+            },
+            tipAmount: {
+                gt: 0 // Solo procesamos pagos Premium (con propina)
+            }
           },
         });
+        
+        if (outdatedTips.length === 0) {
+            fastify.log.info("Cron: No se encontraron pagos expirados para reembolsar.");
+            return reply.send({ success: true, count: 0, message: "No se encontraron pagos pendientes de reembolso." });
+        }
 
-        fastify.log.info(`Estado premium de ${email} cambiado a ${status}`);
-        reply.send({
-          success: true,
-          email: updatedCreator.email,
-          isPremium: updatedCreator.isPremium,
+        // Actualizar el estado a NOT_FULFILLED (Reembolso)
+        const updateResult = await prisma.chatMessage.updateMany({
+            where: {
+                id: { in: outdatedTips.map(t => t.id) }
+            },
+            data: {
+                tipStatus: 'NOT_FULFILLED', // <--- P3: Marcar como No Cumplido/Reembolsable
+            }
+        });
+        
+        // NOTA: Aquí se integraría la API real de Stripe/MercadoPago para devolver el dinero.
+        // En este MVP, solo marcamos la DB para que se refleje en el Balance (P5).
+
+        fastify.log.warn(`Cron: ✅ ${updateResult.count} pago(s) marcado(s) como NOT_FULFILLED (Reembolsable).`);
+        
+        reply.send({ 
+            success: true, 
+            count: updateResult.count, 
+            message: `Reembolso simulado para ${updateResult.count} pago(s).`
         });
 
       } catch (err) {
-        if (err.code === 'P2025') { // Código de Prisma para "Record not found"
-          reply.code(404).send({ error: `Usuario con email ${email} no encontrado` });
-        } else {
-          fastify.log.error(err, "Error al actualizar premium");
-          reply.code(500).send({ error: 'Error interno al actualizar el usuario' });
-        }
+        fastify.log.error(err, "Error al ejecutar el cron de reembolsos");
+        reply.code(500).send({ error: 'Error interno en el cron job' });
       }
     }
   );
