@@ -24,8 +24,10 @@ async function dashboardChatsRoutes(fastify, opts) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      if (!cleanContent || cleanContent.trim() === "") {
-        return reply.code(400).send({ error: "El mensaje no puede estar vacío" });
+      // --- MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (S4) ---
+      const MIN_LENGTH = 30; // Definimos el mínimo de 30 caracteres
+      if (!cleanContent || cleanContent.trim().length < MIN_LENGTH) {
+        return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres para garantizar la calidad del servicio.` });
       }
 
       const chat = await prisma.chat.findUnique({
@@ -102,7 +104,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!creator) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
-      // ✅ Usamos la función a través del objeto importado
+  
       creator = await livesUtils.refillLivesIfNeeded(creator); 
   
       let chat = await prisma.chat.findFirst({
