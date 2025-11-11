@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 async function adminRoutes(fastify, opts) {
   
-  // ... (ruta POST /admin/set-premium se mantiene) ...
+  // Ruta existente para cambiar el estado premium (se mantiene)
 
   /**
    * NUEVA RUTA (P3): Simulación de Cron Job para Reembolsos por Ausencia.
@@ -12,11 +12,11 @@ async function adminRoutes(fastify, opts) {
    */
   fastify.post(
     '/admin/check-refunds',
-    // SOLO accesible con la API Key de Admin (P5)
+    // SOLO accesible con la API Key de Admin
     { preHandler: [fastify.adminAuthenticate] }, 
     async (req, reply) => {
 
-      // Tiempo límite: 72 horas antes de ahora
+      // Tiempo límite: 72 horas (72 * 60 * 60 * 1000 milisegundos) antes de ahora
       const seventyTwoHoursAgo = new Date(Date.now() - (72 * 60 * 60 * 1000));
 
       try {
@@ -37,6 +37,7 @@ async function adminRoutes(fastify, opts) {
             return reply.send({ success: true, count: 0, message: "No se encontraron pagos pendientes de reembolso." });
         }
 
+        // ⚠️ Nota: Esta es la simulación. En producción, aquí se llamaría a la API de pago.
         // Actualizar el estado a NOT_FULFILLED (Reembolso)
         const updateResult = await prisma.chatMessage.updateMany({
             where: {
@@ -47,9 +48,6 @@ async function adminRoutes(fastify, opts) {
             }
         });
         
-        // NOTA: Aquí se integraría la API real de Stripe/MercadoPago para devolver el dinero.
-        // En este MVP, solo marcamos la DB para que se refleje en el Balance (P5).
-
         fastify.log.warn(`Cron: ✅ ${updateResult.count} pago(s) marcado(s) como NOT_FULFILLED (Reembolsable).`);
         
         reply.send({ 

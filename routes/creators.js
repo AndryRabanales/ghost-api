@@ -152,24 +152,31 @@ async function creatorsRoutes(fastify, opts) {
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const { creatorId } = req.params;
-      const { premiumContract } = req.body;
+      const contractData = req.body; 
 
       if (req.user.id !== creatorId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      if (!premiumContract || premiumContract.trim().length < 5) {
-        return reply.code(400).send({ error: "El contrato debe tener al menos 5 caracteres." });
+      if (!contractData || Object.keys(contractData).length === 0) {
+        return reply.code(400).send({ error: "Datos de contrato inválidos." });
       }
 
       try {
         const updatedCreator = await prisma.creator.update({
           where: { id: creatorId },
-          data: { premiumContract: sanitize(premiumContract) },
-          select: { premiumContract: true }
+          data: { premiumContract: contractData },
+          select: { premiumContract: true, publicId: true } 
         });
 
-        reply.send(updatedCreator);
+        // --- AÑADIDO (S3): BROADCAST DE ACTUALIZACIÓN DE CONTRATO (CLAVE) ---
+        fastify.broadcastToPublic(updatedCreator.publicId, {
+            type: 'CREATOR_INFO_UPDATE',
+            premiumContract: updatedCreator.premiumContract,
+        });
+        // --- FIN AÑADIDO ---
+
+        reply.send({ premiumContract: updatedCreator.premiumContract });
       } catch (err) {
         fastify.log.error("❌ Error al actualizar contrato:", err);
         reply.code(500).send({ error: "Error interno al guardar el contrato." });
