@@ -64,7 +64,8 @@ async function publicRoutes(fastify, opts) {
             tipOnlyMode: true,
             dailyMsgLimit: true, // S1: Incluir el límite
             msgCountToday: true, // S1: Incluir el contador
-            msgCountLastReset: true // S1: Incluir la fecha de reset
+            msgCountLastReset: true, // S1: Incluir la fecha de reset
+            premiumContract: true // S3: Incluir el contrato
         } 
       });
 
@@ -152,6 +153,9 @@ async function publicRoutes(fastify, opts) {
         anonToken,
         chatUrl,
         creatorName: creator.name,
+        // --- AÑADIDO: Devolver el contrato al crear el chat ---
+        creatorPremiumContract: creator.premiumContract,
+        // --- FIN AÑADIDO ---
         message: {
           id: message.id,
           content: message.content,
@@ -212,6 +216,57 @@ async function publicRoutes(fastify, opts) {
     }
   });
   
+
+  // --- 👇 ESTA ES LA RUTA NUEVA Y CLAVE ---
+  /**
+   * GET /public/creator/:publicId
+   * Obtiene la info pública del creador (nombre, contrato, límites)
+   * ANTES de que se envíe el primer mensaje.
+   */
+  fastify.get("/public/creator/:publicId", async (req, reply) => {
+    try {
+      const { publicId } = req.params;
+
+      let creator = await prisma.creator.findUnique({
+        where: { publicId },
+        select: { 
+          id: true, // Necesario para checkAndResetLimit
+          name: true, 
+          premiumContract: true,
+          dailyMsgLimit: true,
+          msgCountToday: true,
+          msgCountLastReset: true 
+        }
+      });
+
+      if (!creator) {
+        return reply.code(404).send({ error: "Creador no encontrado" });
+      }
+
+      // Reutilizar la lógica de reseteo de límite si es necesario
+      creator = await checkAndResetLimit(creator); 
+      
+      const isFull = (creator.dailyMsgLimit > 0) && (creator.msgCountToday >= creator.dailyMsgLimit);
+
+      // Devolvemos la info pública que el frontend necesita
+      reply.send({
+        creatorName: creator.name,
+        premiumContract: creator.premiumContract,
+        escasezData: { // Devolvemos el objeto que el frontend espera
+          dailyMsgLimit: creator.dailyMsgLimit,
+          msgCountToday: creator.msgCountToday,
+        },
+        isFull: isFull
+      });
+
+    } catch (err) {
+      fastify.log.error("❌ Error en GET /public/creator/:publicId:", err);
+      return reply.code(500).send({ error: "Error obteniendo información del creador" });
+    }
+  });
+  // --- 👆 FIN DE LA NUEVA RUTA ---
+
+
   // RUTA NECESARIA PARA QUE EL FRONTEND OBTENGA EL NOMBRE DEL CREADOR
   fastify.get("/public/:publicId/info", async (req, reply) => {
     try {
@@ -225,18 +280,4 @@ async function publicRoutes(fastify, opts) {
       });
 
       if (!creator) {
-        return reply.code(404).send({ error: "Creador no encontrado" });
-      }
-
-      reply.send({
-        name: creator.name,
-        lastActiveAt: creator.lastActive
-      });
-    } catch (err) {
-      fastify.log.error("❌ Error en /public/:publicId/info:", err);
-      return reply.code(500).send({ error: "Error obteniendo información del creador" });
-    }
-  });
-}
-
-module.exports = publicRoutes;
+        return reply.code(404).send({ error: "Creador no encontrado"
