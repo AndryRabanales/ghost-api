@@ -146,45 +146,53 @@ async function creatorsRoutes(fastify, opts) {
 
   // --- RUTA (S3): Actualizar el contrato Premium. ---
   // --- CAMBIO: Se usa 'premiumContract' del body, no el body entero ---
+// andryrabanales/ghost-api/ghost-api-e73e7b65792caea8c21e450c185fc2ac0dc20397/routes/creators.js
+
+// ... (código existente) ...
+
+  // --- RUTA NUEVA: Para guardar la preferencia temática del creador (E4) ---
   fastify.post(
-    "/creators/:creatorId/update-contract",
+    "/creators/:creatorId/update-topic",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const { creatorId } = req.params;
-      // --- CAMBIO: Destructurar la string del body ---
-      const { premiumContract } = req.body; 
+      const { topicPreference } = req.body; // El tema que el creador quiere
 
       if (req.user.id !== creatorId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      // --- CAMBIO: Validar la string ---
-      if (typeof premiumContract !== 'string' || premiumContract.length > 120) {
-        return reply.code(400).send({ error: "Datos de contrato inválidos." });
+      const MAX_LENGTH = 100; // Suficiente para describir el nicho
+
+      if (typeof topicPreference !== 'string' || topicPreference.length > MAX_LENGTH) {
+        return reply.code(400).send({ error: `La preferencia de tema es inválida o excede los ${MAX_LENGTH} caracteres.` });
       }
-      
-      const cleanContract = sanitize(premiumContract);
+
+      const cleanTopic = sanitize(topicPreference);
 
       try {
         const updatedCreator = await prisma.creator.update({
           where: { id: creatorId },
-          // --- CAMBIO: Guardar la string sanitizada ---
-          data: { premiumContract: cleanContract },
-          select: { premiumContract: true, publicId: true } 
+          data: { topicPreference: cleanTopic },
+          select: { topicPreference: true, publicId: true }
         });
 
+        // Notificar a la página pública que el precio cambió
         fastify.broadcastToPublic(updatedCreator.publicId, {
             type: 'CREATOR_INFO_UPDATE',
-            premiumContract: updatedCreator.premiumContract,
+            topicPreference: updatedCreator.topicPreference,
         });
 
-        reply.send({ premiumContract: updatedCreator.premiumContract });
+        reply.send({ success: true, topicPreference: updatedCreator.topicPreference });
       } catch (err) {
-        fastify.log.error("❌ Error al actualizar contrato:", err);
-        reply.code(500).send({ error: "Error interno al guardar el contrato." });
+        fastify.log.error("❌ Error al actualizar preferencia de tema:", err);
+        reply.code(500).send({ error: "Error interno al guardar el tema." });
       }
     }
   );
+  // --- FIN RUTA NUEVA ---
+  
+// ... (resto del código del archivo creators.js)
 
   // --- RUTA NUEVA: Para guardar la configuración de precio ---
   fastify.post(

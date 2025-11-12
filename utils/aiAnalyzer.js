@@ -20,10 +20,11 @@ const LOCAL_BAD_WORDS = [
  * Etapa 2: Modelo de Moderación de OpenAI (Gratis)
  * Etapa 3: Modelo de Contexto GPT-4o-mini (De Pago)
  */
-const analyzeMessage = async (content) => {
+const analyzeMessage = async (content, creatorPreference) => {
   const lowerCaseContent = content.toLowerCase();
 
-  // --- ETAPA 1: Filtro de Palabras Clave (Costo: $0) ---
+  // --- ETAPA 1 y 2 (Sin cambios) ---
+  // ... (código de Etapa 1 y Etapa 2 sin cambios) ...
   for (const word of LOCAL_BAD_WORDS) {
     if (lowerCaseContent.includes(word)) {
       console.log(`[AI Moderation - ETAPA 1] Mensaje BLOQUEADO (Palabra clave): ${word}`);
@@ -31,57 +32,65 @@ const analyzeMessage = async (content) => {
     }
   }
 
-  // --- ETAPA 2: Modelo de Moderación GRATUITO (Costo: $0) ---
   try {
-    const modResponse = await openai.moderations.create({
-      input: content,
-    });
-    
+    const modResponse = await openai.moderations.create({ input: content });
     if (modResponse.results[0].flagged) {
       console.log(`[AI Moderation - ETAPA 2] Mensaje BLOQUEADO (Moderación Gratuita)`);
       return { isSafe: false, reason: 'Tu mensaje fue bloqueado por moderación.' };
     }
   } catch (modError) {
     console.error("ERROR en AI Analyzer (Etapa 2 - Moderación Gratuita):", modError);
-    // Si la Etapa 2 falla, no lo bloqueamos, lo pasamos a la Etapa 3 por si acaso.
   }
 
-  // --- ETAPA 3: "Detective" de Contexto (Costo: $ PAGO) ---
-  // Solo se ejecuta si el mensaje pasa las dos etapas gratuitas.
-  // Es para mensajes como "Qué guapa te ves, dime dónde vives"
+  // --- ETAPA 3: "Detective" de Contexto y Relevancia (Costo: $ PAGO) ---
+  const preference = creatorPreference || "Mensajes sobre temas de vida, coaching y consejos.";
+  
   const prompt = `
-    Analiza el siguiente mensaje. Tu única tarea es clasificarlo como 'SAFE' (seguro) o 'UNSAFE' (inseguro).
-    Considera 'UNSAFE' CUALQUIER insinuación sexual, pregunta personal sospechosa, o acoso sutil.
-    Responde ÚNICAMENTE con la palabra 'SAFE' o la palabra 'UNSAFE'.
-
-    Mensaje: "${content}"
+    Analiza el siguiente mensaje de un fan. Tu tarea es evaluarlo en dos puntos CRUCIALES.
+    
+    Punto 1: SEGURIDAD (SAFE/UNSAFE). Considera 'UNSAFE' CUALQUIER insinuación sexual, pregunta personal sospechosa, acoso sutil o amenaza.
+    
+    Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}". Clasifica la relevancia del mensaje a este tema con un número del 1 al 10. (10 = Totalmente Relevante).
+    
+    Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
+    Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
+    
+    Mensaje del Fan: "${content}"
   `;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // El modelo que SÍ funcionó en nuestras pruebas
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: prompt },
         { role: "user", content: content }
       ],
-      max_tokens: 5,
-      temperature: 0, // Crítico para que solo responda "SAFE" o "UNSAFE"
+      max_tokens: 100, // Ajuste para el JSON
+      temperature: 0,
+      response_format: { type: "json_object" } // CLAVE: Pedir JSON
     });
 
-    const text = response.choices[0].message.content.trim().toUpperCase();
+    const jsonText = response.choices[0].message.content.trim();
+    const result = JSON.parse(jsonText);
 
-    if (text === 'UNSAFE') {
+    // --- Lógica de Seguridad (E1 - El Policía) ---
+    if (result.safety === 'UNSAFE') {
       console.log(`[AI Moderation - ETAPA 3] Mensaje BLOQUEADO (GPT-4o-mini): ${content.substring(0, 30)}...`);
       return { isSafe: false, reason: 'Tu mensaje fue bloqueado por moderación.' };
     }
 
-    console.log(`[AI Moderation - ETAPA 3] Mensaje APROBADO (GPT-4o-mini)`);
-    return { isSafe: true };
+    // --- Lógica de Relevancia (E4 - El Valor) ---
+    const relevanceScore = parseInt(result.relevance_score, 10);
+    if (isNaN(relevanceScore)) throw new Error("IA no devolvió score de relevancia");
+
+    console.log(`[AI Moderation - ETAPA 3] Mensaje APROBADO. Relevancia: ${relevanceScore}`);
+    
+    return { isSafe: true, relevance: relevanceScore };
 
   } catch (error) {
     console.error("ERROR en AI Analyzer (Etapa 3 - GPT-4o-mini):", error);
     // Si la IA de pago falla, lo dejamos pasar por ahora.
-    return { isSafe: true }; 
+    return { isSafe: true, relevance: 5 }; // Score neutral por defecto (5)
   }
 };
 

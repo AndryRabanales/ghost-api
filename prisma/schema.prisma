@@ -59,7 +59,7 @@ model Creator {
 
   // S3: Contrato de Contenido Explicito
   premiumContract        String?   @default("Respuesta de alta calidad.") // <--- CAMPO AÑADIDO (S3)
-
+  topicPreference        String?   @default("Cualquier mensaje respetuoso.") // <--- AÑADIDO (E4)
   // --- Relaciones ---
   chats                  Chat[]
   messages               Message[]
@@ -122,6 +122,7 @@ model ChatMessage {
   // --- CAMPO NUEVO ---
   // El "Puntaje de Prioridad" calculado con tu fórmula
   priorityScore      Float?
+  relevanceScore     Int? // <--- AÑADIDO (E4)
   
 }
 
