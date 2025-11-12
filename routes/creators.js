@@ -190,6 +190,167 @@ fastify.post(
 
 // ... (código existente) ...
 
+
+// routes/public.js
+
+// Asegúrate de que analyzeMessage esté importado:
+// const { analyzeMessage } = require('../utils/aiAnalyzer'); 
+// const { sanitize } = require("../utils/sanitize"); 
+// const { calculatePriorityScore, checkAndResetLimit } = (tus helpers)
+
+fastify.post("/public/:publicId/messages", async (req, reply) => {
+  try {
+    const { publicId } = req.params;
+    const originalContent = req.body.content;
+    const originalAlias = req.body.alias || "Anónimo";
+    
+    const tipAmount = req.body.tipAmount || 0; 
+    
+    if (!originalContent || originalContent.trim().length < 3) {
+      return reply.code(400).send({ error: "El mensaje es muy corto." });
+    }
+    
+    const cleanContent = sanitize(originalContent);
+    const cleanAlias = sanitize(originalAlias);
+
+    // --- 1. Fetch Creator Data (Incluyendo topicPreference) ---
+    let creator = await prisma.creator.findUnique({
+      where: { publicId },
+      select: { 
+          id: true, 
+          name: true,
+          baseTipAmountCents: true, 
+          dailyMsgLimit: true, 
+          msgCountToday: true, 
+          msgCountLastReset: true, 
+          premiumContract: true,
+          topicPreference: true // <-- CLAVE: Obtener preferencia para la IA
+      } 
+    });
+
+    if (!creator) {
+      return reply.code(404).send({ error: "Creador no encontrado" });
+    }
+    
+    // --- 2. Lógica de Límite Diario (S1) ---
+    if (creator.dailyMsgLimit > 0) {
+        creator = await checkAndResetLimit(creator); 
+        if (tipAmount > 0 && creator.msgCountToday >= creator.dailyMsgLimit) {
+            return reply.code(429).send({ 
+                error: "Este creador ha alcanzado su límite diario de mensajes premium. Intenta de nuevo mañana.",
+                code: "DAILY_LIMIT_REACHED"
+            });
+        }
+    }
+
+    // --- 3. VALIDACIÓN DE PAGO MÍNIMO OBLIGATORIO (P2) ---
+    const baseTipAmountPesos = (creator.baseTipAmountCents || 10000) / 100;
+
+    if (tipAmount < baseTipAmountPesos) {
+        return reply.code(400).send({ 
+          error: `El pago mínimo para este creador es $${baseTipAmountPesos} MXN.`,
+          code: "MINIMUM_PAYMENT_REQUIRED"
+        });
+    }
+    // --- FIN: VALIDACIÓN DE PAGO MÍNIMO ---
+
+
+    // --- 4. INICIO: DOBLE MODERACIÓN Y CALCULO DE PRIORIDAD (E1, E4) ---
+    let priorityScoreBase = calculatePriorityScore(tipAmount);
+    let finalPriorityScore = priorityScoreBase;
+    let relevanceScore = 5; 
+
+    try {
+        // LLAMADA CLAVE: Doble verificación de Seguridad (E1) y Relevancia (E4)
+        const analysis = await analyzeMessage(cleanContent, creator.topicPreference);
+        
+        // E1: Bloqueo de Seguridad (Rechazo automático)
+        if (!analysis.isSafe) {
+            // Si la SEGURIDAD falla, se rechaza inmediatamente (E1)
+            return reply.code(400).send({ error: analysis.reason || 'Mensaje bloqueado por moderación.' });
+        }
+        
+        // E4: Aplicar Bonus/Penalización por Relevancia
+        relevanceScore = analysis.relevance;
+        const relevanceFactor = 1 + (relevanceScore - 5) / 10; // Factor de -0.4x a +0.5x
+        finalPriorityScore = Math.round(priorityScoreBase * relevanceFactor * 100) / 100;
+
+    } catch (aiError) {
+        fastify.log.error("❌ Error grave en AI Analyzer:", aiError);
+        // Si la IA falla, usamos el score base sin penalización para no detener el servicio.
+        relevanceScore = 5; 
+        finalPriorityScore = priorityScoreBase;
+    }
+    // --- FIN: DOBLE MODERACIÓN Y CALCULO DE PRIORIDAD ---
+
+    
+    const anonToken = crypto.randomUUID();
+
+    const chat = await prisma.chat.create({
+      data: {
+        creatorId: creator.id,
+        anonToken,
+        anonAlias: cleanAlias,
+      },
+    });
+
+    // --- 5. CREACIÓN DEL MENSAJE FINAL (Escrow Blando y Scoring) ---
+    const message = await prisma.chatMessage.create({
+      data: {
+        chatId: chat.id,
+        from: "anon",
+        alias: cleanAlias,
+        content: cleanContent,
+        tipAmount: tipAmount,
+        tipStatus: 'PENDING', // <--- ESCROW BLANDO: Dinero retenido
+        tipPaymentIntentId: crypto.randomUUID(),
+        priorityScore: finalPriorityScore, // <--- GUARDAMOS EL SCORE FINAL (S6)
+        relevanceScore: relevanceScore // <--- GUARDAMOS LA RELEVANCIA (E4)
+      },
+    });
+    
+    // (S1): Incrementar el contador
+    if (creator.dailyMsgLimit > 0) {
+        await prisma.creator.update({
+            where: { id: creator.id },
+            data: { msgCountToday: { increment: 1 } }
+        });
+    }
+
+    fastify.broadcastToDashboard(creator.id, {
+      type: 'message',
+      ...message,
+    });
+
+    const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const chatUrl = `${baseUrl}/chats/${anonToken}/${chat.id}`;
+
+    // --- 6. REDIRECCIÓN EXITOSA ---
+    return reply.code(201).send({
+      success: true,
+      chatId: chat.id,
+      anonToken,
+      chatUrl,
+      creatorName: creator.name,
+      creatorPremiumContract: creator.premiumContract,
+      message: {
+        id: message.id,
+        content: message.content,
+        alias: message.alias,
+        createdAt: message.createdAt,
+      },
+    });
+  } catch (err) {
+    fastify.log.error("❌ Error en /public/:publicId/messages:", err);
+    // Nota: Si el error viene de Stripe (pago), debe manejar el reembolso. 
+    // Asumimos que el front-end maneja los errores 400 (AI/Mínimo) adecuadamente.
+    return reply.code(500).send({ error: "Error enviando mensaje" });
+  }
+});
+
+
+
+
   // --- RUTA NUEVA: Para guardar la preferencia temática del creador (E4) ---
   fastify.post(
     "/creators/:creatorId/update-topic",
