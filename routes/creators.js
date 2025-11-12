@@ -3,10 +3,7 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 const livesUtils = require('../utils/lives'); 
-const { sanitize } = require("../utils/sanitize"); // Necesario para sanitizar el contrato (S3)
-
-// --- ELIMINADO: No importamos Stripe para la simulación ---
-// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { sanitize } = require("../utils/sanitize");
 
 async function creatorsRoutes(fastify, opts) {
   
@@ -27,6 +24,7 @@ async function creatorsRoutes(fastify, opts) {
           lives: 6,
           maxLives: 6,
           lastUpdated: new Date(),
+          // baseTipAmountCents se establece por defecto gracias al schema
         },
       });
       const token = fastify.generateToken(creator);
@@ -47,7 +45,7 @@ async function creatorsRoutes(fastify, opts) {
   });
 
   // --- RUTA (GET /creators/me) ---
-  // Incluye el cálculo de balance (P1, P2), estado Premium y vidas.
+  // --- CAMBIO: Ahora devuelve 'baseTipAmountCents' ---
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -72,7 +70,7 @@ async function creatorsRoutes(fastify, opts) {
       // --- LÓGICA DE VIDAS (sin cambios) ---
       const updated = await livesUtils.refillLivesIfNeeded(creator);
 
-      // --- CÁLCULO DE BALANCE (P1, P2) ---
+      // --- CÁLCULO DE BALANCE (sin cambios) ---
       const availableBalanceResult = await prisma.chatMessage.aggregate({
         _sum: { tipAmount: true },
         where: {
@@ -105,8 +103,9 @@ async function creatorsRoutes(fastify, opts) {
         stripeAccountOnboarded: updated.stripeAccountOnboarded,
         availableBalance: availableBalance,
         pendingBalance: pendingBalance,
-        // S3: Incluimos el contrato para el componente de configuración
-        premiumContract: updated.premiumContract || "Respuesta de alta calidad." 
+        premiumContract: updated.premiumContract || "Respuesta de alta calidad.",
+        // --- CAMBIO: Devolver el precio base ---
+        baseTipAmountCents: updated.baseTipAmountCents
       });
     } catch (err) {
       fastify.log.error("❌ Error en GET /creators/me:", err);
@@ -114,7 +113,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
   
-  // --- RUTA (P5): SIMULACIÓN DE STRIPE ONBOARDING ---
+  // --- RUTA (P5): SIMULACIÓN DE STRIPE ONBOARDING (sin cambios) ---
   fastify.post(
     "/creators/stripe-onboarding",
     { preHandler: [fastify.authenticate] },
@@ -128,7 +127,6 @@ async function creatorsRoutes(fastify, opts) {
         fastify.log.info(`✅ (SIMULADO) Link de Onboarding generado para ${creator.id}`);
         const simulatedStripeUrl = "https://connect.stripe.com/setup/s/simulated-onboarding-link";
         
-        // Simulamos que el onboarding fue exitoso
         await prisma.creator.update({
           where: { id: creator.id },
           data: { 
@@ -147,38 +145,38 @@ async function creatorsRoutes(fastify, opts) {
   );
 
   // --- RUTA (S3): Actualizar el contrato Premium. ---
+  // --- CAMBIO: Se usa 'premiumContract' del body, no el body entero ---
   fastify.post(
     "/creators/:creatorId/update-contract",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const { creatorId } = req.params;
-      const { premiumContract } = req.body; // <-- FIX 1: Destructure the string
+      // --- CAMBIO: Destructurar la string del body ---
+      const { premiumContract } = req.body; 
 
       if (req.user.id !== creatorId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      // FIX 2: Validate the string itself
-      if (typeof premiumContract !== 'string') { 
-        return reply.code(400).send({ error: "Datos de contrato inválidos, se esperaba un string." });
+      // --- CAMBIO: Validar la string ---
+      if (typeof premiumContract !== 'string' || premiumContract.length > 120) {
+        return reply.code(400).send({ error: "Datos de contrato inválidos." });
       }
+      
+      const cleanContract = sanitize(premiumContract);
 
       try {
-        // Sanitize the input before saving (Good Practice)
-        const cleanContract = sanitize(premiumContract);
-
         const updatedCreator = await prisma.creator.update({
           where: { id: creatorId },
-          data: { premiumContract: cleanContract }, // <-- FIX 3: Use the string variable
+          // --- CAMBIO: Guardar la string sanitizada ---
+          data: { premiumContract: cleanContract },
           select: { premiumContract: true, publicId: true } 
         });
 
-        // --- AÑADIDO (S3): BROADCAST DE ACTUALIZACIÓN DE CONTRATO (CLAVE) ---
         fastify.broadcastToPublic(updatedCreator.publicId, {
             type: 'CREATOR_INFO_UPDATE',
             premiumContract: updatedCreator.premiumContract,
         });
-        // --- FIN AÑADIDO ---
 
         reply.send({ premiumContract: updatedCreator.premiumContract });
       } catch (err) {
@@ -188,8 +186,49 @@ async function creatorsRoutes(fastify, opts) {
     }
   );
 
+  // --- RUTA NUEVA: Para guardar la configuración de precio ---
+  fastify.post(
+    "/creators/:creatorId/settings",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const { creatorId } = req.params;
+      const { baseTipAmountCents } = req.body;
+
+      if (req.user.id !== creatorId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
+      
+      const MIN_PRICE_CENTS = 10000; // $100.00 MXN
+
+      if (typeof baseTipAmountCents !== 'number' || baseTipAmountCents < MIN_PRICE_CENTS) {
+        return reply.code(400).send({ error: `El precio mínimo debe ser de $${MIN_PRICE_CENTS / 100} MXN.` });
+      }
+
+      try {
+        const updatedCreator = await prisma.creator.update({
+          where: { id: creatorId },
+          data: { baseTipAmountCents: baseTipAmountCents },
+          select: { baseTipAmountCents: true, publicId: true }
+        });
+
+        // Notificar a la página pública que el precio cambió
+        fastify.broadcastToPublic(updatedCreator.publicId, {
+            type: 'CREATOR_INFO_UPDATE',
+            baseTipAmountCents: updatedCreator.baseTipAmountCents,
+        });
+
+        reply.send({ success: true, baseTipAmountCents: updatedCreator.baseTipAmountCents });
+      } catch (err) {
+        fastify.log.error("❌ Error al actualizar precio base:", err);
+        reply.code(500).send({ error: "Error interno al guardar el precio." });
+      }
+    }
+  );
+  // --- FIN RUTA NUEVA ---
+
+
   // --- RUTA (GET /dashboard/:dashboardId/chats) ---
-  // Incluye la Priorización por Precio (S6).
+  // --- CAMBIO: Ordenar por 'priorityScore' ---
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
@@ -202,11 +241,10 @@ async function creatorsRoutes(fastify, opts) {
   
         const chats = await prisma.chat.findMany({
           where: { creatorId: dashboardId },
-          // Quitamos el orderBy por createdAt en el root query para hacerlo en JS
           include: {
             messages: {
               orderBy: { createdAt: "desc" }, 
-              take: 1,
+              take: 1, // Tomamos el último mensaje (que tiene el score)
             },
           },
         });
@@ -215,28 +253,28 @@ async function creatorsRoutes(fastify, opts) {
           id: chat.id,
           anonAlias: chat.anonAlias || "Anónimo",
           isOpened: chat.isOpened,
-          anonReplied: chat.anonReplied, // Campo clave para la notificación
+          anonReplied: chat.anonReplied, 
           createdAt: chat.createdAt,
-          previewMessage: chat.messages[0] || null // El último mensaje
+          previewMessage: chat.messages[0] || null
         }));
         
-        // --- IMPLEMENTACIÓN S6: Ordenar por Monto de Propina (Prioridad) ---
+        // --- CAMBIO: Ordenar por 'priorityScore' usando tu fórmula ---
         formatted.sort((a, b) => {
-            // 1. Obtener la propina del último mensaje (usamos 0 si no hay o es null)
-            const tipA = a.previewMessage?.tipAmount || 0;
-            const tipB = b.previewMessage?.tipAmount || 0;
+            // 1. Obtener el puntaje de prioridad (usamos 0 si no hay)
+            const scoreA = a.previewMessage?.priorityScore || 0;
+            const scoreB = b.previewMessage?.priorityScore || 0;
             
-            // Prioridad principal: Monto de propina (mayor a menor)
-            if (tipA !== tipB) {
-                return tipB - tipA; // Mayor propina primero
+            // Prioridad principal: Puntaje (mayor a menor)
+            if (scoreA !== scoreB) {
+                return scoreB - scoreA; // Mayor puntaje primero
             }
             
-            // Prioridad secundaria: Fecha del último mensaje (más reciente primero)
+            // Prioridad secundaria: Fecha (más reciente primero)
             const dateA = new Date(a.previewMessage?.createdAt || a.createdAt).getTime();
             const dateB = new Date(b.previewMessage?.createdAt || b.createdAt).getTime();
-            return dateB - dateA; // Más reciente primero
+            return dateB - dateA;
         });
-        // --- FIN IMPLEMENTACIÓN S6 ---
+        // --- FIN CAMBIO ---
         
         reply.send(formatted); 
       

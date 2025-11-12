@@ -46,6 +46,11 @@ model Creator {
 
   // --- 👇 CAMPOS DE FUNCIONES PRO / ESCCASEZ (PILAR 2: S1, S3) ---
   tipOnlyMode            Boolean   @default(false)
+
+  // --- CAMPO NUEVO ---
+  // Precio base que el creador define (en centavos, ej: 10000 = $100.00 MXN)
+  // Lo ponemos en centavos para evitar decimales.
+  baseTipAmountCents     Int       @default(10000)
   
   // S1: Límite de mensajes Premium
   dailyMsgLimit          Int       @default(30) 
@@ -113,6 +118,11 @@ model ChatMessage {
   tipAmount          Float?
   tipPaymentIntentId String?  @unique
   tipStatus          String?
+
+  // --- CAMPO NUEVO ---
+  // El "Puntaje de Prioridad" calculado con tu fórmula
+  priorityScore      Float?
+  
 }
 
 model Payment {

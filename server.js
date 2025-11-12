@@ -29,6 +29,8 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 // Aceptamos ambos orígenes del frontend: con 'www' y sin 'www'.
 fastify.register(cors, { 
     origin: [
+
+      'http://localhost:3000',
       'https://ghostmsg.space', 
       'https://www.ghostmsg.space'
     ], 
