@@ -17,7 +17,7 @@ async function adminRoutes(fastify, opts) {
     async (req, reply) => {
 
       // Tiempo límite: 72 horas (72 * 60 * 60 * 1000 milisegundos) antes de ahora
-      const seventyTwoHoursAgo = new Date(Date.now() - (72 * 60 * 60 * 1000));
+      const seventyTwoHoursAgo = new Date(Date.now() - (7 * 1000));
 
       try {
         const outdatedTips = await prisma.chatMessage.findMany({
