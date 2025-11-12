@@ -148,6 +148,46 @@ async function creatorsRoutes(fastify, opts) {
   // --- CAMBIO: Se usa 'premiumContract' del body, no el body entero ---
 // andryrabanales/ghost-api/ghost-api-e73e7b65792caea8c21e450c185fc2ac0dc20397/routes/creators.js
 
+fastify.post(
+  "/creators/:creatorId/update-contract",
+  { preHandler: [fastify.authenticate] },
+  async (req, reply) => {
+    const { creatorId } = req.params;
+    const { premiumContract } = req.body; 
+
+    if (req.user.id !== creatorId) {
+      return reply.code(403).send({ error: "No autorizado" });
+    }
+
+    const MAX_LENGTH = 120; // Límite que ya tenías en el frontend
+    if (typeof premiumContract !== 'string' || premiumContract.length > MAX_LENGTH) {
+      return reply.code(400).send({ error: "Datos de contrato inválidos o exceden el límite de caracteres." });
+    }
+    
+    const cleanContract = sanitize(premiumContract);
+
+    try {
+      const updatedCreator = await prisma.creator.update({
+        where: { id: creatorId },
+        data: { premiumContract: cleanContract },
+        select: { premiumContract: true, publicId: true } 
+      });
+
+      fastify.broadcastToPublic(updatedCreator.publicId, {
+          type: 'CREATOR_INFO_UPDATE',
+          premiumContract: updatedCreator.premiumContract,
+      });
+
+      reply.send({ premiumContract: updatedCreator.premiumContract });
+    } catch (err) {
+      fastify.log.error("❌ Error al actualizar contrato:", err);
+      reply.code(500).send({ error: "Error interno al guardar el contrato." });
+    }
+  }
+);
+
+
+
 // ... (código existente) ...
 
   // --- RUTA NUEVA: Para guardar la preferencia temática del creador (E4) ---
