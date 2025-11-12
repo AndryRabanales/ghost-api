@@ -27,15 +27,24 @@ const fastify = Fastify({ logger: true, trustProxy: true });
 // En lugar de aceptar cualquier origen, solo aceptamos el de nuestro frontend.
 // --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
 // Aceptamos ambos orígenes del frontend: con 'www' y sin 'www'.
-fastify.register(cors, { 
-    origin: [
-
-      'http://localhost:3000',
-      'https://ghostmsg.space', 
-      'https://www.ghostmsg.space'
-    ], 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-  });
+fastify.register(cors, {
+  origin: (origin, callback) => {
+    // 1. Permite la petición si no tiene origen (ej: Postman, servidor)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // 2. Comprueba si el origen está en nuestra lista de permitidos
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // 3. Si el origen no está en la lista, lo rechaza.
+    callback(new Error(`No permitido por CORS: ${origin}`), false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true // Crucial para manejar cookies/tokens
+});
 // --- PLUGINS ---
 fastify.register(authPlugin);
 fastify.register(websocket);
