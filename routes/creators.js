@@ -152,20 +152,24 @@ async function creatorsRoutes(fastify, opts) {
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const { creatorId } = req.params;
-      const contractData = req.body; 
+      const { premiumContract } = req.body; // <-- FIX 1: Destructure the string
 
       if (req.user.id !== creatorId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      if (!contractData || Object.keys(contractData).length === 0) {
-        return reply.code(400).send({ error: "Datos de contrato inválidos." });
+      // FIX 2: Validate the string itself
+      if (typeof premiumContract !== 'string') { 
+        return reply.code(400).send({ error: "Datos de contrato inválidos, se esperaba un string." });
       }
 
       try {
+        // Sanitize the input before saving (Good Practice)
+        const cleanContract = sanitize(premiumContract);
+
         const updatedCreator = await prisma.creator.update({
           where: { id: creatorId },
-          data: { premiumContract: contractData },
+          data: { premiumContract: cleanContract }, // <-- FIX 3: Use the string variable
           select: { premiumContract: true, publicId: true } 
         });
 
