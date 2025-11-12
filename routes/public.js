@@ -280,4 +280,18 @@ async function publicRoutes(fastify, opts) {
       });
 
       if (!creator) {
-        return reply.code(404).send({ error: "Creador no encontrado"
+        return reply.code(404).send({ error: "Creador no encontrado" });
+      }
+
+      reply.send({
+        name: creator.name,
+        lastActiveAt: creator.lastActive
+      });
+    } catch (err) {
+      fastify.log.error("❌ Error en /public/:publicId/info:", err);
+      return reply.code(500).send({ error: "Error obteniendo información del creador" });
+    }
+  });
+}
+
+module.exports = publicRoutes;
