@@ -66,7 +66,10 @@ fastify.register(adminRoutes);
 const start = async () => {
   try {
     const port = process.env.PORT || 8080;
-    await fastify.listen({ port, host: "0.0.0.0" });
+    await fastify.listen({ 
+      port: process.env.PORT || 8080,
+      host: '0.0.0.0' 
+    });
     fastify.log.info(`Servidor escuchando en el puerto: ${port}`);
   } catch (err) {
     fastify.log.error(err);
