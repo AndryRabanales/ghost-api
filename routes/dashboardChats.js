@@ -26,40 +26,52 @@ async function dashboardChatsRoutes(fastify, opts) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      // --- 👇 2. MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (S4) 👇 ---
+      // --- 👇 2. MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (50) 👇 ---
       const MIN_LENGTH = 50; // Subido a 50 caracteres
       if (!cleanContent || cleanContent.trim().length < MIN_LENGTH) {
-        return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres para garantizar la calidad del servicio.` });
+        return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres.` });
       }
 
-      // --- 👇 3. MODIFICACIÓN: DOBLE VALIDACIÓN DE IA (Seguridad + Calidad) 👇 ---
+      // --- 👇 3. MODIFICACIÓN: DOBLE VALIDACIÓN DE IA (Seguridad + Calidad + Contexto) 👇 ---
       try {
-        // Chequeo 1: Seguridad (reutilizando tu lógica)
+        // Chequeo 1: Seguridad (rápido)
         const safetyCheck = await analyzeMessage(cleanContent);
         if (!safetyCheck.isSafe) {
-          return reply.code(400).send({ error: safetyCheck.reason || 'Tu respuesta fue bloqueada por moderación y no se pudo enviar.' });
+          return reply.code(400).send({ error: safetyCheck.reason || 'Tu respuesta fue bloqueada por moderación.' });
         }
         
-        // Chequeo 2: Calidad vs Contrato
+        // Chequeo 2: Calidad vs Contrato y Contexto
         // Obtenemos el contrato que el creador prometió
         const creator = await prisma.creator.findUnique({
           where: { id: dashboardId },
           select: { premiumContract: true }
         });
+        
+        // Buscamos la última pregunta del anónimo para darle contexto a la IA
+        const lastAnonMessage = await prisma.chatMessage.findFirst({
+            where: { chatId: chatId, from: 'anon' },
+            orderBy: { createdAt: 'desc' },
+            select: { content: true }
+        });
 
-        const qualityCheck = await analyzeCreatorResponse(cleanContent, creator.premiumContract);
+        // Llamamos a la IA con el contexto
+        const qualityCheck = await analyzeCreatorResponse(
+            cleanContent, 
+            creator.premiumContract, 
+            lastAnonMessage?.content // Pasamos la pregunta del anónimo
+        );
 
         if (!qualityCheck.success) {
-          // La IA determinó que la RESPUESTA es de baja calidad
+          // La IA determinó que la RESPUESTA es de baja calidad o irrelevante
           return reply.code(400).send({ 
-            error: `Respuesta de baja calidad: ${qualityCheck.reason}. Ajusta tu mensaje para poder enviarlo y liberar tu pago.` 
+            error: `Respuesta rechazada: ${qualityCheck.reason}. Ajusta tu mensaje para liberar tu pago.` 
           });
         }
         
       } catch (aiError) {
         fastify.log.error(aiError, "Error en la validación de IA de la respuesta del creador");
         // Si la IA falla catastróficamente, es más seguro bloquear la respuesta
-        return reply.code(500).send({ error: "Error en el servicio de análisis de IA. Intenta de nuevo más tarde." });
+        return reply.code(500).send({ error: "Error en el servicio de análisis de IA. Intenta de nuevo." });
       }
       // --- 👆 FIN: VALIDACIÓN DE IA 👆 ---
 
