@@ -74,7 +74,7 @@ fastify.post("/public/:publicId/messages", async (req, reply) => {
             msgCountToday: true, 
             msgCountLastReset: true, 
             premiumContract: true,
-            topicPreference: true, // <-- CLAVE: Traemos la preferencia de tema (E4)
+            topicPreference: true // <-- CLAVE: Traemos la preferencia de tema (E4)
         } 
       });
 
@@ -273,18 +273,18 @@ fastify.post("/public/:publicId/messages", async (req, reply) => {
       const { publicId } = req.params;
 
       let creator = await prisma.creator.findUnique({
-        where: { publicId },
-        select: { 
-          id: true, 
-          name: true, 
-          premiumContract: true,
-          dailyMsgLimit: true,
-          msgCountToday: true,
-          msgCountLastReset: true,
-          // --- CAMBIO: Devolver el precio base ---
-          baseTipAmountCents: true 
-        }
-      });
+                where: { publicId },
+                select: { 
+                  id: true, 
+                  name: true, 
+                  premiumContract: true,
+                  dailyMsgLimit: true,
+                  msgCountToday: true,
+                  msgCountLastReset: true,
+                  baseTipAmountCents: true,
+                  topicPreference: true // <--- ¡¡AÑADE ESTA LÍNEA AQUÍ!!
+                }
+              });
 
       if (!creator) {
         return reply.code(404).send({ error: "Creador no encontrado" });
