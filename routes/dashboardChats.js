@@ -1,4 +1,4 @@
-// andryrabanales/ghost-api/ghost-api-ccf8c4209b8106a049818e3cd23d69e44883da4e/routes/dashboardChats.js
+// andryrabanales/ghost-api/ghost-api-282b77c99f664dcc9acae14a9880ffdd34fc9b54/routes/dashboardChats.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
@@ -6,7 +6,8 @@ const prisma = new PrismaClient();
 const livesUtils = require("../utils/lives"); 
 
 const { sanitize } = require("../utils/sanitize"); 
-const { analyzeMessage } = require("../utils/aiAnalyzer"); // <--- AÑADE ESTA LÍNEA
+// --- 👇 1. MODIFICACIÓN: Importar ambas funciones de IA 👇 ---
+const { analyzeMessage, analyzeCreatorResponse } = require("../utils/aiAnalyzer");
 
 async function dashboardChatsRoutes(fastify, opts) {
 
@@ -25,28 +26,44 @@ async function dashboardChatsRoutes(fastify, opts) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      // --- MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (S4) ---
-      const MIN_LENGTH = 30; // Definimos el mínimo de 30 caracteres
+      // --- 👇 2. MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (S4) 👇 ---
+      const MIN_LENGTH = 50; // Subido a 50 caracteres
       if (!cleanContent || cleanContent.trim().length < MIN_LENGTH) {
         return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres para garantizar la calidad del servicio.` });
       }
 
-      // --- 👇 INICIO: VALIDACIÓN DE IA DE LA RESPUESTA DEL CREADOR 👇 ---
+      // --- 👇 3. MODIFICACIÓN: DOBLE VALIDACIÓN DE IA (Seguridad + Calidad) 👇 ---
       try {
-        // Llamamos a la IA para un chequeo de seguridad (spam, acoso, etc.)
-        // No pasamos "topicPreference" porque solo validamos seguridad, no relevancia.
-        const analysis = await analyzeMessage(cleanContent);
+        // Chequeo 1: Seguridad (reutilizando tu lógica)
+        const safetyCheck = await analyzeMessage(cleanContent);
+        if (!safetyCheck.isSafe) {
+          return reply.code(400).send({ error: safetyCheck.reason || 'Tu respuesta fue bloqueada por moderación y no se pudo enviar.' });
+        }
         
-        if (!analysis.isSafe) {
-          // La IA determinó que la RESPUESTA es insegura
-          return reply.code(400).send({ error: analysis.reason || 'Tu respuesta fue bloqueada por moderación y no se pudo enviar.' });
+        // Chequeo 2: Calidad vs Contrato
+        // Obtenemos el contrato que el creador prometió
+        const creator = await prisma.creator.findUnique({
+          where: { id: dashboardId },
+          select: { premiumContract: true }
+        });
+
+        const qualityCheck = await analyzeCreatorResponse(cleanContent, creator.premiumContract);
+
+        if (!qualityCheck.success) {
+          // La IA determinó que la RESPUESTA es de baja calidad
+          return reply.code(400).send({ 
+            error: `Respuesta de baja calidad: ${qualityCheck.reason}. Ajusta tu mensaje para poder enviarlo y liberar tu pago.` 
+          });
         }
         
       } catch (aiError) {
         fastify.log.error(aiError, "Error en la validación de IA de la respuesta del creador");
-        // Si la IA falla catastróficamente, no bloqueamos al creador por ahora.
+        // Si la IA falla catastróficamente, es más seguro bloquear la respuesta
+        return reply.code(500).send({ error: "Error en el servicio de análisis de IA. Intenta de nuevo más tarde." });
       }
       // --- 👆 FIN: VALIDACIÓN DE IA 👆 ---
+
+      // --- Si pasa la validación, el código continúa ---
 
       const chat = await prisma.chat.findUnique({
         where: { id: chatId }
@@ -65,6 +82,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       });
 
       // IMPLEMENTACIÓN PILAR 2: LIBERACIÓN DE FONDOS
+      // (Esta lógica ahora solo se ejecuta si la IA da el OK)
       const lastAnonTip = await prisma.chatMessage.findFirst({
         where: {
           chatId: chatId,
@@ -158,7 +176,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       });
       
       let tipExpiresInMinutes = null;
-      const EXPIRATION_HOURS = 24; 
+      const EXPIRATION_HOURS = 24; // 24 horas para responder
       
       if (lastAnonTip && lastAnonTip.tipAmount > 0) {
           const now = new Date();
@@ -171,6 +189,7 @@ async function dashboardChatsRoutes(fastify, opts) {
               tipExpiresInMinutes = Math.ceil(timeLeftMs / (1000 * 60));
           } else {
               // Si ya expiró, marcamos como NOT_FULFILLED
+              // (La ruta de admin.js también hace esto, pero es bueno tener redundancia)
               await prisma.chatMessage.update({
                   where: { id: lastAnonTip.id },
                   data: { tipStatus: 'NOT_FULFILLED' }
