@@ -1,3 +1,5 @@
+// andryrabanales/ghost-api/ghost-api-282b77c99f664dcc9acae14a9880ffdd34fc9b54/utils/aiAnalyzer.js
+
 const { OpenAI } = require("openai");
 
 // 1. Carga la clave API de OpenAI desde el archivo .env
@@ -7,7 +9,6 @@ const openai = new OpenAI({
 
 // --- ETAPA 1 (Costo: $0) ---
 // Filtro de insultos obvios y directos.
-// NO ponemos groserías casuales (ej. "pendejo", "no mames")
 const LOCAL_BAD_WORDS = [
   'idiota', 'imbécil', 'estúpido', 'estupido', 'muérete', 'muerete', 'suicídate',
   'puta', 'puto', 'zorra', 'perra', 'naco', 'gordo', 'gorda', 'asco',
@@ -15,7 +16,8 @@ const LOCAL_BAD_WORDS = [
 ];
 
 /**
- * La estrategia de 3 etapas para analizar mensajes.
+ * (FUNCIÓN EXISTENTE)
+ * La estrategia de 3 etapas para analizar mensajes ANÓNIMOS.
  * Etapa 1: Filtro local de palabras (Gratis)
  * Etapa 2: Modelo de Moderación de OpenAI (Gratis)
  * Etapa 3: Modelo de Contexto GPT-4o-mini (De Pago)
@@ -24,7 +26,6 @@ const analyzeMessage = async (content, creatorPreference) => {
   const lowerCaseContent = content.toLowerCase();
 
   // --- ETAPA 1 y 2 (Sin cambios) ---
-  // ... (código de Etapa 1 y Etapa 2 sin cambios) ...
   for (const word of LOCAL_BAD_WORDS) {
     if (lowerCaseContent.includes(word)) {
       console.log(`[AI Moderation - ETAPA 1] Mensaje BLOQUEADO (Palabra clave): ${word}`);
@@ -59,8 +60,11 @@ const analyzeMessage = async (content, creatorPreference) => {
   `;
 
   try {
+    // Usamos el modelo que mencionaste, gpt-3.5-turbo, o gpt-4o-mini si prefieres más potencia
+    const modelToUse = "gpt-3.5-turbo-0125"; // O "gpt-4o-mini"
+    
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: modelToUse,
       messages: [
         { role: "system", content: prompt },
         { role: "user", content: content }
@@ -75,7 +79,7 @@ const analyzeMessage = async (content, creatorPreference) => {
 
     // --- Lógica de Seguridad (E1 - El Policía) ---
     if (result.safety === 'UNSAFE') {
-      console.log(`[AI Moderation - ETAPA 3] Mensaje BLOQUEADO (GPT-4o-mini): ${content.substring(0, 30)}...`);
+      console.log(`[AI Moderation - ETAPA 3] Mensaje BLOQUEADO (${modelToUse}): ${content.substring(0, 30)}...`);
       return { isSafe: false, reason: 'Tu mensaje fue bloqueado por moderación.' };
     }
 
@@ -88,10 +92,84 @@ const analyzeMessage = async (content, creatorPreference) => {
     return { isSafe: true, relevance: relevanceScore };
 
   } catch (error) {
-    console.error("ERROR en AI Analyzer (Etapa 3 - GPT-4o-mini):", error);
+    console.error(`ERROR en AI Analyzer (Etapa 3 - ${modelToUse}):`, error);
     // Si la IA de pago falla, lo dejamos pasar por ahora.
     return { isSafe: true, relevance: 5 }; // Score neutral por defecto (5)
   }
 };
 
-module.exports = { analyzeMessage };
+
+// --- 👇 FUNCIÓN NUEVA AÑADIDA 👇 ---
+
+/**
+ * (NUEVA FUNCIÓN)
+ * Analiza la RESPUESTA de un creador para asegurar que cumple con su
+ * contrato de servicio y no es una respuesta genérica de baja calidad.
+ *
+ * @param {string} responseContent La respuesta que escribió el creador.
+ * @param {string} premiumContract La promesa/contrato del creador (ej. "Respuesta de +100 caracteres con 1 foto").
+ * @returns {Promise<{success: boolean, reason: string}>}
+ */
+async function analyzeCreatorResponse(responseContent, premiumContract) {
+  // 1. Usar un prompt de "auditor".
+  // Usamos el 3.5-turbo que mencionaste, es rápido y barato para esta tarea.
+  const prompt = `
+    Eres un auditor de calidad. Un creador ha prometido a su cliente: "${premiumContract}".
+    El creador ha escrito la siguiente respuesta para liberar su pago: "${responseContent}".
+
+    Tu tarea es determinar si la respuesta cumple la promesa y NO es una respuesta genérica o de bajo esfuerzo (como "gracias", "saludos", "hola").
+
+    Responde SOLAMENTE con un objeto JSON con dos claves:
+    1. "cumple_promesa": (true/false)
+    2. "razon": (Una explicación MUY BREVE de por qué, especialmente si es 'false'. Ej: "Respuesta demasiado corta", "Respuesta genérica", "No cumple el contrato")
+
+    Ejemplos de respuestas de BAJA CALIDAD (false):
+    - "jaja gracias por tu mensaje, saludos!"
+    - "Muchas gracias por tu apoyo, sigue viendo mis videos."
+    - "Claro que sí, te mando un saludo."
+
+    Ejemplos de respuestas de ALTA CALIDAD (true):
+    - "Hola! Sobre tu pregunta de negocios, mi consejo es que te enfoques en el marketing digital primero..."
+    - "¡Gracias por tus palabras! La verdad es que empecé mi canal porque me apasionaba..."
+
+    Analiza la respuesta.
+  `;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo-0125", // Usamos el 3.5-turbo como mencionaste
+      messages: [
+        { role: "system", content: prompt },
+        { role: "user", content: responseContent }
+      ],
+      max_tokens: 100,
+      temperature: 0.1, // Queremos que sea estricto y consistente
+      response_format: { type: "json_object" }
+    });
+
+    const jsonText = response.choices[0].message.content.trim();
+    const result = JSON.parse(jsonText);
+
+    if (result.cumple_promesa === true) {
+      console.log(`[AI Auditor - Creador] ✅ Respuesta APROBADA. Razón: ${result.razon}`);
+      return { success: true, reason: result.razon };
+    } else {
+      console.log(`[AI Auditor - Creador] ❌ Respuesta BLOQUEADA. Razón: ${result.razon}`);
+      // Devolvemos la razón del rechazo para mostrarla al creador
+      return { success: false, reason: result.razon || "La respuesta no cumple con tu Contrato de Servicio o es de baja calidad." };
+    }
+
+  } catch (error) {
+    console.error("ERROR en AI Auditor (Creador):", error);
+    // En caso de error de la API, somos optimistas y la dejamos pasar.
+    // Podrías cambiar esto a 'false' si prefieres ser estricto.
+    return { success: true, reason: "Error de IA (Pase temporal)" };
+  }
+}
+
+
+// --- 👇 EXPORTACIÓN ACTUALIZADA 👇 ---
+module.exports = { 
+  analyzeMessage,
+  analyzeCreatorResponse
+};
