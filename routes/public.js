@@ -294,9 +294,12 @@ fastify.post("/public/:publicId/messages", async (req, reply) => {
       
       const isFull = (creator.dailyMsgLimit > 0) && (creator.msgCountToday >= creator.dailyMsgLimit);
 
+      const topic = creator.topicPreference || "Cualquier mensaje respetuoso.";
+
       reply.send({
         creatorName: creator.name,
         premiumContract: creator.premiumContract,
+        topicPreference: topic, // <--- AÑADE ESTA LÍNEA
         // --- CAMBIO: Devolvemos el precio base ---
         baseTipAmountCents: creator.baseTipAmountCents,
         escasezData: { 
