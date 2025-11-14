@@ -110,23 +110,37 @@ fastify.post("/public/:publicId/messages", async (req, reply) => {
       let finalPriorityScore = priorityScoreBase;
       let relevanceScore = 5; // Valor neutro por defecto (por si la IA falla)
 
-      try {
-          // LLAMADA CLAVE: Se hace la doble verificación de Seguridad y Relevancia
-          const analysis = await analyzeMessage(cleanContent, creator.topicPreference);
-          
-          // 1. Verificación de Seguridad (El Policía - E1)
-          if (!analysis.isSafe) {
-              return reply.code(400).send({ error: analysis.reason || 'Mensaje bloqueado por moderación.' });
-          }
-          
-          // 2. Cálculo de Relevancia (E4)
-          relevanceScore = analysis.relevance;
-          
-          // Aplicar BONUS/PENALIZACIÓN a la Prioridad por Relevancia
-          // Fórmula: ScoreFinal = Base * (1 + (Relevancia - 5) / 10)
-          const relevanceFactor = 1 + (relevanceScore - 5) / 10;
-          finalPriorityScore = Math.round(priorityScoreBase * relevanceFactor * 100) / 100;
-          
+     // ... (dentro de POST /public/:publicId/messages)
+     try {
+      // LLAMADA CLAVE: Se hace la doble verificación de Seguridad y Relevancia
+      const analysis = await analyzeMessage(cleanContent, creator.topicPreference);
+      
+      // 1. Verificación de Seguridad (El Policía - E1)
+      if (!analysis.isSafe) {
+          return reply.code(400).send({ error: analysis.reason || 'Mensaje bloqueado por moderación.' });
+      }
+      
+      // 2. Cálculo de Relevancia (E4)
+      relevanceScore = analysis.relevance;
+
+      // --- 👇 INICIO DEL NUEVO BLOQUE DE RECHAZO POR RELEVANCIA 👇 ---
+      // Si el creador definió un tema, hacemos cumplir la regla.
+      const MINIMUM_RELEVANCE_SCORE = 3; // Umbral (de 1 a 10). 3 es un buen inicio.
+
+      if (creator.topicPreference && relevanceScore < MINIMUM_RELEVANCE_SCORE) {
+        fastify.log.warn(`[Relevance Block] Mensaje bloqueado. Score: ${relevanceScore} (Mínimo: ${MINIMUM_RELEVANCE_SCORE}). Tema: "${creator.topicPreference}"`);
+        return reply.code(400).send({ 
+          error: `El mensaje no parece estar relacionado con el tema del creador (${creator.topicPreference}). Por favor, ajusta tu pregunta.`,
+          code: "MESSAGE_NOT_RELEVANT" // Código de error para el frontend
+        });
+      }
+      // --- 👆 FIN DEL NUEVO BLOQUE 👆 ---
+      
+      // Aplicar BONUS/PENALIZACIÓN a la Prioridad por Relevancia
+      // Fórmula: ScoreFinal = Base * (1 + (Relevancia - 5) / 10)
+      const relevanceFactor = 1 + (relevanceScore - 5) / 10;
+      finalPriorityScore = Math.round(priorityScoreBase * relevanceFactor * 100) / 100;
+// ... (continúa)
           fastify.log.info(`✅ Score base: ${priorityScoreBase}, Relevancia: ${relevanceScore}, Final Score: ${finalPriorityScore}`);
 
       } catch (aiError) {
