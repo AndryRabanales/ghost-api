@@ -6,6 +6,7 @@ const prisma = new PrismaClient();
 const livesUtils = require("../utils/lives"); 
 
 const { sanitize } = require("../utils/sanitize"); 
+const { analyzeMessage } = require("../utils/aiAnalyzer"); // <--- AÑADE ESTA LÍNEA
 
 async function dashboardChatsRoutes(fastify, opts) {
 
@@ -29,6 +30,23 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!cleanContent || cleanContent.trim().length < MIN_LENGTH) {
         return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres para garantizar la calidad del servicio.` });
       }
+
+      // --- 👇 INICIO: VALIDACIÓN DE IA DE LA RESPUESTA DEL CREADOR 👇 ---
+      try {
+        // Llamamos a la IA para un chequeo de seguridad (spam, acoso, etc.)
+        // No pasamos "topicPreference" porque solo validamos seguridad, no relevancia.
+        const analysis = await analyzeMessage(cleanContent);
+        
+        if (!analysis.isSafe) {
+          // La IA determinó que la RESPUESTA es insegura
+          return reply.code(400).send({ error: analysis.reason || 'Tu respuesta fue bloqueada por moderación y no se pudo enviar.' });
+        }
+        
+      } catch (aiError) {
+        fastify.log.error(aiError, "Error en la validación de IA de la respuesta del creador");
+        // Si la IA falla catastróficamente, no bloqueamos al creador por ahora.
+      }
+      // --- 👆 FIN: VALIDACIÓN DE IA 👆 ---
 
       const chat = await prisma.chat.findUnique({
         where: { id: chatId }
