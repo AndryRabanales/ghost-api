@@ -26,8 +26,8 @@ async function dashboardChatsRoutes(fastify, opts) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      // --- 👇 2. MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (50) 👇 ---
-      const MIN_LENGTH = 50; // Subido a 50 caracteres
+      // --- 👇 2. MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (40) 👇 ---
+      const MIN_LENGTH = 40; // Subido a 50 caracteres
       if (!cleanContent || cleanContent.trim().length < MIN_LENGTH) {
         return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres.` });
       }
