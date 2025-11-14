@@ -74,7 +74,7 @@ fastify.post("/public/:publicId/messages", async (req, reply) => {
             msgCountToday: true, 
             msgCountLastReset: true, 
             premiumContract: true,
-            topicPreference: true // <-- CLAVE: Traemos la preferencia de tema (E4)
+            topicPreference: true, // <-- CLAVE: Traemos la preferencia de tema (E4)
         } 
       });
 
