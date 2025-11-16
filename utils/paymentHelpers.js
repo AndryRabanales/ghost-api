@@ -22,7 +22,7 @@ function calculatePriorityScore(amountInPesos) {
  * @param {object} creator - El objeto Creador de Prisma.
  * @returns {Promise<object>} El objeto Creador (actualizado si fue reseteado).
  */
-async function checkAndResetLimit(creator) {
+async function checkAndResetLimit(creator, fastify) {
   const now = new Date();
   const lastReset = new Date(creator.msgCountLastReset);
   
