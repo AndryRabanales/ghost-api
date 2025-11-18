@@ -105,7 +105,9 @@ async function creatorsRoutes(fastify, opts) {
         pendingBalance: pendingBalance,
         premiumContract: updated.premiumContract || "Respuesta de alta calidad.",
         // --- CAMBIO: Devolver el precio base ---
-        baseTipAmountCents: updated.baseTipAmountCents
+        baseTipAmountCents: updated.baseTipAmountCents,
+        // --- AÑADIDO: Devolver preferencia de tema ---
+        topicPreference: updated.topicPreference || "Cualquier mensaje respetuoso."
       });
     } catch (err) {
       fastify.log.error("❌ Error en GET /creators/me:", err);
@@ -113,7 +115,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
   
-  // --- RUTA (P5): SIMULACIÓN DE STRIPE ONBOARDING (sin cambios) ---
+  // --- RUTA (P5): SIMULACIÓN DE STRIPE ONBOARDING (CORREGIDA) ---
   fastify.post(
     "/creators/stripe-onboarding",
     { preHandler: [fastify.authenticate] },
@@ -124,20 +126,33 @@ async function creatorsRoutes(fastify, opts) {
           return reply.code(404).send({ error: "Creador no encontrado" });
         }
 
-        fastify.log.info(`✅ (SIMULADO) Link de Onboarding generado para ${creator.id}`);
         const simulatedStripeUrl = "https://connect.stripe.com/setup/s/simulated-onboarding-link";
+
+        // --- 👇 LA CORRECCIÓN ESTÁ AQUÍ 👇 ---
+        // Si el creador YA ESTÁ onboardeado, no intentes actualizar la DB.
+        // Solo envíale el link de nuevo.
+        if (creator.stripeAccountOnboarded && creator.stripeAccountId) {
+          fastify.log.info(`✅ (SIMULADO) Link de Onboarding RE-GENERADO para ${creator.id}`);
+          // Simplemente enviamos el link sin tocar la DB
+          return reply.send({ onboarding_url: simulatedStripeUrl });
+        }
+        // --- 👆 FIN DE LA CORRECCIÓN 👆 ---
+
+        // Si es la primera vez, actualiza la DB como antes.
+        fastify.log.info(`✅ (SIMULADO) Link de Onboarding INICIAL generado para ${creator.id}`);
         
         await prisma.creator.update({
           where: { id: creator.id },
           data: { 
             stripeAccountOnboarded: true, 
-            stripeAccountId: "sim_acct_12345"
+            stripeAccountId: "sim_acct_12345" // ID simulado
           },
         });
 
         reply.send({ onboarding_url: simulatedStripeUrl });
 
       } catch (err) {
+        // Este catch ahora solo se activará por errores REALES, no por duplicados.
         fastify.log.error("❌ Error en /creators/stripe-onboarding (Simulado):", err);
         reply.code(500).send({ error: "Error al simular el link de Stripe Connect" });
       }
@@ -145,56 +160,43 @@ async function creatorsRoutes(fastify, opts) {
   );
 
   // --- RUTA (S3): Actualizar el contrato Premium. ---
-  // --- CAMBIO: Se usa 'premiumContract' del body, no el body entero ---
-// andryrabanales/ghost-api/ghost-api-e73e7b65792caea8c21e450c185fc2ac0dc20397/routes/creators.js
+  fastify.post(
+    "/creators/:creatorId/update-contract",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      const { creatorId } = req.params;
+      const { premiumContract } = req.body; 
 
-fastify.post(
-  "/creators/:creatorId/update-contract",
-  { preHandler: [fastify.authenticate] },
-  async (req, reply) => {
-    const { creatorId } = req.params;
-    const { premiumContract } = req.body; 
+      if (req.user.id !== creatorId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
 
-    if (req.user.id !== creatorId) {
-      return reply.code(403).send({ error: "No autorizado" });
+      const MAX_LENGTH = 120; // Límite que ya tenías en el frontend
+      if (typeof premiumContract !== 'string' || premiumContract.length > MAX_LENGTH) {
+        return reply.code(400).send({ error: "Datos de contrato inválidos o exceden el límite de caracteres." });
+      }
+      
+      const cleanContract = sanitize(premiumContract);
+
+      try {
+        const updatedCreator = await prisma.creator.update({
+          where: { id: creatorId },
+          data: { premiumContract: cleanContract },
+          select: { premiumContract: true, publicId: true } 
+        });
+
+        fastify.broadcastToPublic(updatedCreator.publicId, {
+            type: 'CREATOR_INFO_UPDATE',
+            premiumContract: updatedCreator.premiumContract,
+        });
+
+        reply.send({ premiumContract: updatedCreator.premiumContract });
+      } catch (err) {
+        fastify.log.error("❌ Error al actualizar contrato:", err);
+        reply.code(500).send({ error: "Error interno al guardar el contrato." });
+      }
     }
-
-    const MAX_LENGTH = 120; // Límite que ya tenías en el frontend
-    if (typeof premiumContract !== 'string' || premiumContract.length > MAX_LENGTH) {
-      return reply.code(400).send({ error: "Datos de contrato inválidos o exceden el límite de caracteres." });
-    }
-    
-    const cleanContract = sanitize(premiumContract);
-
-    try {
-      const updatedCreator = await prisma.creator.update({
-        where: { id: creatorId },
-        data: { premiumContract: cleanContract },
-        select: { premiumContract: true, publicId: true } 
-      });
-
-      fastify.broadcastToPublic(updatedCreator.publicId, {
-          type: 'CREATOR_INFO_UPDATE',
-          premiumContract: updatedCreator.premiumContract,
-      });
-
-      reply.send({ premiumContract: updatedCreator.premiumContract });
-    } catch (err) {
-      fastify.log.error("❌ Error al actualizar contrato:", err);
-      reply.code(500).send({ error: "Error interno al guardar el contrato." });
-    }
-  }
-);
-
-
-
-// ... (código existente) ...
-
-
-
-
-
-
+  );
 
   // --- RUTA NUEVA: Para guardar la preferencia temática del creador (E4) ---
   fastify.post(
@@ -238,8 +240,6 @@ fastify.post(
   );
   // --- FIN RUTA NUEVA ---
   
-// ... (resto del código del archivo creators.js)
-
   // --- RUTA NUEVA: Para guardar la configuración de precio ---
   fastify.post(
     "/creators/:creatorId/settings",

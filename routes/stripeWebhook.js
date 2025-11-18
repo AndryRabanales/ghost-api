@@ -103,8 +103,7 @@ module.exports = async function stripeWebhook(fastify, opts) {
           content: content,
           tipAmount: parseFloat(tipAmount),
           tipStatus: 'PENDING', // (P3) Escrow Blando
-          tipPaymentIntentId: session.id, // (Para Tarea 4b)
-          // externalReference ya no es necesario, usamos el session.id
+          tipPaymentIntentId: session.payment_intent,
           priorityScore: finalPriorityScore, // (S6)
           relevanceScore: relevanceScore // (E4)
         },

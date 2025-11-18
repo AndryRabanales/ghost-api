@@ -1,4 +1,4 @@
-// Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/routes/public.js
+// Contenido para: andryrabanales/ghost-api/ghost-api-ce0f4843dec2f834ac5b6dd3d858a27a6d4bac58/routes/public.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
@@ -7,7 +7,6 @@ const { analyzeMessage } = require('../utils/aiAnalyzer');
 const { calculatePriorityScore, checkAndResetLimit } = require('../utils/paymentHelpers');
 
 // --- 👇 1. IMPORTAR STRIPE ---
-// (Asegúrate de haber corrido: npm install stripe)
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function publicRoutes(fastify, opts) {
@@ -49,17 +48,30 @@ async function publicRoutes(fastify, opts) {
          fastify.log.warn(aiError, "AI check (alias) falló, permitiendo...");
       }
 
-      // 3. Validar Creador, Límite (S1) y Precio Mínimo (P2)
+      // 3. Validar Creador, Límite (S1), Precio Mínimo (P2) y Onboarding de Stripe
       let creator = await prisma.creator.findUnique({
         where: { publicId },
         select: { 
             id: true, name: true, baseTipAmountCents: true, dailyMsgLimit: true, 
-            msgCountToday: true, msgCountLastReset: true, topicPreference: true 
+            msgCountToday: true, msgCountLastReset: true, topicPreference: true,
+            // --- 👇 CAMPOS PARA STRIPE CONNECT 👇 ---
+            stripeAccountId: true,
+            stripeAccountOnboarded: true
         } 
       });
       if (!creator) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
+
+      // --- 👇 VALIDACIÓN DE ONBOARDING AÑADIDA 👇 ---
+      if (!creator.stripeAccountOnboarded || !creator.stripeAccountId) {
+        fastify.log.error(`Creador ${publicId} no tiene cuenta de Stripe conectada.`);
+        return reply.code(400).send({ 
+          error: "Este creador aún no ha configurado sus pagos. No puede recibir mensajes.",
+          code: "CREATOR_NOT_ONBOARDED"
+        });
+      }
+      // --- FIN DE VALIDACIÓN AÑADIDA ---
 
       creator = await checkAndResetLimit(creator, fastify); 
       
@@ -83,6 +95,15 @@ async function publicRoutes(fastify, opts) {
       // 4. Calcular Score Base (S6)
       const priorityScoreBase = calculatePriorityScore(totalAmountNum);
 
+      // --- 👇 BLOQUE DE LÓGICA DE PAGO STRIPE CONNECT 👇 ---
+
+      // 1. Calcular el monto del pago en centavos
+      const tipAmountInCents = Math.round(totalAmountNum * 100);
+      
+      // 2. Calcular TU comisión (ej. 20%)
+      const APPLICATION_FEE_PERCENTAGE = 0.20; // 20%
+      const applicationFeeInCents = Math.round(tipAmountInCents * APPLICATION_FEE_PERCENTAGE);
+
       // 5. Crear Sesión de Stripe Checkout
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -94,14 +115,23 @@ async function publicRoutes(fastify, opts) {
                 name: `Mensaje Premium para ${creator.name}`,
                 description: cleanContent.slice(0, 100) + "...",
               },
-              unit_amount: Math.round(totalAmountNum * 100), // Stripe usa centavos
+              unit_amount: tipAmountInCents, // Stripe usa centavos
             },
             quantity: 1,
           },
         ],
         mode: 'payment',
-        // Pasar el email del fan a Stripe (para recibos y Tarea 4)
         customer_email: cleanEmail,
+        
+        // --- 👇 ESTE ES EL BLOQUE MÁGICO DE STRIPE CONNECT 👇 ---
+        payment_intent_data: {
+          application_fee_amount: applicationFeeInCents, // Tu comisión
+          transfer_data: {
+            destination: creator.stripeAccountId, // La cuenta del creador
+          },
+        },
+        // --- 👆 FIN DEL BLOQUE MÁGICO 👆 ---
+
         // --- METADATA CRÍTICA (Se envía al Webhook) ---
         metadata: {
           publicId: publicId,
@@ -117,7 +147,7 @@ async function publicRoutes(fastify, opts) {
         cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}?payment=failed`,
       });
 
-      fastify.log.info(`Sesión de Stripe creada para ${publicId} (ID: ${session.id})`);
+      fastify.log.info(`Sesión de Stripe (Connect) creada para ${publicId} (ID: ${session.id})`);
       // Devolvemos la URL de pago al frontend
       reply.send({ url: session.url });
 
