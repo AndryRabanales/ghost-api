@@ -227,6 +227,60 @@ async function publicRoutes(fastify, opts) {
       return reply.code(500).send({ error: "Error obteniendo información del creador" });
     }
   });
+
+  // --- 👇 PASO 1 (RECIBO VIVO): NUEVA RUTA GET /public/chat-from-session ---
+  fastify.get("/public/chat-from-session", async (req, reply) => {
+    try {
+      const { session_id } = req.query;
+      if (!session_id) {
+        return reply.code(400).send({ error: "Falta session_id" });
+      }
+
+      // --- LLAMADA A STRIPE PARA OBTENER EL PAYMENT INTENT ---
+      // La URL de éxito nos da el ID de la *sesión* (cs_...),
+      // pero en el webhook (stripeWebhook.js) guardamos el ID del *pago* (pi_...).
+      // Esta llamada es necesaria para vincularlos.
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      
+      if (!session || !session.payment_intent) {
+        throw new Error("Sesión de Stripe no válida o sin pago asociado.");
+      }
+      
+      // 1. Encontrar el ChatMessage usando el ID del pago (payment_intent)
+      const message = await prisma.chatMessage.findFirst({
+        where: {
+          tipPaymentIntentId: session.payment_intent 
+        },
+        include: {
+          chat: { // 2. Incluir el Chat padre
+            select: {
+              id: true,
+              anonToken: true
+            }
+          }
+        }
+      });
+
+      if (!message || !message.chat) {
+        fastify.log.warn(`Recibo vivo: No se encontró el chat para la session_id ${session_id} (PaymentIntent: ${session.payment_intent})`);
+        // Esto puede pasar si el usuario llega aquí ANTES de que el webhook de Stripe termine.
+        return reply.code(404).send({ error: "Chat no encontrado. El pago podría estar procesándose. Intenta de nuevo en unos segundos." });
+      }
+
+      // 3. Devolver los datos del chat
+      fastify.log.info(`Recibo vivo: Entregando token para chat ${message.chat.id}`);
+      reply.send({
+        chatId: message.chat.id,
+        anonToken: message.chat.anonToken
+      });
+
+    } catch (err) {
+      fastify.log.error(err, "Error en /public/chat-from-session");
+      reply.code(500).send({ error: err.message || "Error al recuperar el chat" });
+    }
+  });
+  // --- 👆 FIN DE NUEVA RUTA 👆 ---
 }
 
 module.exports = publicRoutes;

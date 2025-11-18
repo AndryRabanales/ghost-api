@@ -14,7 +14,7 @@ async function adminRoutes(fastify, opts) {
 
       // --- 👇 2. AJUSTE DE TIEMPO A 2 MINUTOS PARA PRUEBA 👇 ---
       // const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 72 horas (PRODUCCIÓN)
-      const timeLimitAgo = new Date(Date.now() - (60 * 1000)); // 2 MINUTOS (PARA PRUEBA)
+      const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 2 MINUTOS (PARA PRUEBA)
       // --- 👆 FIN DEL AJUSTE 👆 ---
 
       try {
