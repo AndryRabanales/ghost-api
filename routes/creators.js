@@ -410,7 +410,7 @@ async function creatorsRoutes(fastify, opts) {
         reply.send(formatted); 
       
       } catch (err) {
-        fastify.log.error("❌ Error en GET chatsss:", err);
+        fastify.log.error("❌ Error en GET chats:", err);
         reply.code(500).send({ error: "Error obteniendo chats" });
       }
     }
