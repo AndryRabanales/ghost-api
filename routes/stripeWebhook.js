@@ -1,4 +1,4 @@
-// Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/routes/stripeWebhook.js
+// routes/stripeWebhook.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
@@ -6,9 +6,9 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // --- 👇 1. IMPORTAR HELPERS NECESARIOS ---
 const { analyzeMessage } = require('../utils/aiAnalyzer');
-const { checkAndResetLimit } = require('../utils/paymentHelpers'); // Solo 1 helper
-
-// (La función de validación de firma de Mercado Pago se elimina)
+const { checkAndResetLimit } = require('../utils/paymentHelpers');
+// Importamos el helper de email para la Estrategia 2
+const { sendAccessLinkEmail } = require('../utils/mailer'); 
 
 module.exports = async function stripeWebhook(fastify, opts) {
   
@@ -103,7 +103,7 @@ module.exports = async function stripeWebhook(fastify, opts) {
           content: content,
           tipAmount: parseFloat(tipAmount),
           tipStatus: 'PENDING', // (P3) Escrow Blando
-          tipPaymentIntentId: session.payment_intent,
+          tipPaymentIntentId: session.payment_intent, // ID real del pago para recibo vivo
           priorityScore: finalPriorityScore, // (S6)
           relevanceScore: relevanceScore // (E4)
         },
@@ -124,11 +124,23 @@ module.exports = async function stripeWebhook(fastify, opts) {
         chatId: chat.id,
       });
 
-      // 10. Enviar Email de Respaldo (E2 / Tarea 4)
+      // 10. Enviar Email de Respaldo (Estrategia 2 - Definitiva)
       if (fanEmail) {
         const chatUrl = `${process.env.FRONTEND_URL}/chats/${chat.anonToken}/${chat.id}`;
-        fastify.log.info(`(Simulación Email E2) Enviando a ${fanEmail} el link: ${chatUrl}`);
-        // (Aquí iría tu lógica real de envío de email con SendGrid, etc.)
+        
+        // Llamada al helper de mailer
+        try {
+            await sendAccessLinkEmail(
+                fanEmail, 
+                chatUrl, 
+                creator.name || "el Creador",
+                content.substring(0, 50) // Preview para el asunto/cuerpo
+            );
+            fastify.log.info(`✅ (Email Enviado) Link de acceso enviado a ${fanEmail}`);
+        } catch (emailErr) {
+            fastify.log.error(`❌ Error enviando email a ${fanEmail}:`, emailErr);
+            // No detenemos el webhook si falla el email, ya se cobró
+        }
       }
 
     } else if (event.type === 'pre_approval') {
