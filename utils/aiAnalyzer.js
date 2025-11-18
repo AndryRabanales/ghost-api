@@ -49,10 +49,16 @@ const analyzeMessage = async (content, creatorPreference) => {
     
     Punto 1: SEGURIDAD (SAFE/UNSAFE). Considera 'UNSAFE' CUALQUIER insinuación sexual, pregunta personal sospechosa, acoso sutil o amenaza.
     
-    Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}". Clasifica la relevancia del mensaje a este tema con un número del 1 al 10. (10 = Totalmente Relevante).
+    Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}".
+    Tu tarea es asignar un puntaje de relevancia del 1 al 10.
+    
+    ¡IMPORTANTE: No seas estricto con el puntaje! Sigue estas reglas:
+    -   Si el mensaje es respetuoso pero NO está relacionado con el tema (ej: "Hola", "¿Cómo estás?", "Me encanta tu trabajo"), asígnale un puntaje base neutral de **5**.
+    -   Si el mensaje SÍ está relacionado con el tema ("${preference}"), dale un puntaje más alto (**6-10**) según qué tan relevante sea.
+    -   Si el mensaje es spam obvio o texto sin sentido (ej: "asdasd", "compra esto"), dale un puntaje bajo (**1-3**).
     
     Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
-    Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}, no seas muy estricto
+    Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
     
     Mensaje del Fan: "${content}"
   `;
@@ -114,21 +120,27 @@ async function analyzeCreatorResponse(responseContent, premiumContract, lastAnon
   const questionContext = lastAnonQuestion || "la pregunta del usuario";
 
   const prompt = `
-    Eres un auditor de calidad. Revisa la siguiente interacción:
+    Eres un auditor de calidad. Tu principal objetivo es ser permisivo. NO seas estricto.
 
+    Revisa la siguiente interacción:
     1.  **La Pregunta del Anónimo:** "${questionContext}"
     2.  **La Promesa del Creador (su contrato):** "${premiumContract}"
     3.  **La Respuesta del Creador:** "${responseContent}"
 
-    Tu tarea es determinar si la respuesta es válida. Debe cumplir DOS condiciones:
-    1.  ¿Es una respuesta de ALTA CALIDAD que cumple la promesa del creador?
-    2.  ¿Responde DIRECTAMENTE a la pregunta del anónimo? y si no es pregunta, acoplate al mensaje, no seas muy estricto pero tampoco dejes que no le den nada de calidad al fan, lo minimo.
+    Tu tarea es determinar si la respuesta es válida.
+    Debes APROBAR (true) casi todo, EXCEPTO lo siguiente:
 
-    Rechaza (false) si la respuesta es muy genérica, de muy bajo esfuerzo, o si ignora totalmente al anónimo.
+    Rechaza (false) ÚNICAMENTE si la respuesta es:
+    -   Evidentemente genérica (ej: "gracias", "ok", "jaja", "excelente pregunta")
+    -   De muy bajo esfuerzo o evasiva (ej: "no sé", "...", "luego te digo")
+    -   Ignora TOTALMENTE la pregunta o el tema del anónimo.
+    -   Contradice directamente la promesa del contrato (ej: promete audio y da texto).
+
+    No juzgues la "calidad" más allá de estos puntos. Solo filtra lo obvio y el spam. El objetivo es que el creador cobre su dinero.
 
     Responde SOLAMENTE con un objeto JSON con dos claves:
     1. "cumple_promesa": (true/false)
-    2. "razon": (Explicación breve si es 'false'. Ej: "Respuesta genérica", "No responde a la pregunta", "No cumple el contrato")
+    2. "razon": (Explicación breve si es 'false'. Ej: "Respuesta genérica", "Ignora la pregunta")
   `;
 
   try {
