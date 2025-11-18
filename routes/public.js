@@ -1,4 +1,4 @@
-// Contenido para: andryrabanales/ghost-api/ghost-api-ce0f4843dec2f834ac5b6dd3d858a27a6d4bac58/routes/public.js
+// Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/routes/public.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
@@ -12,7 +12,6 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 async function publicRoutes(fastify, opts) {
   
   // --- 👇 2. RUTA DE MENSAJES INSEGURA (DESHABILITADA) ---
-  // (Requisito: "Borrar Lógica Insegura")
   fastify.post("/public/:publicId/messages", async (req, reply) => {
     fastify.log.warn(`Intento de uso de ruta insegura deshabilitada: POST /public/${req.params.publicId}/messages`);
     return reply.code(403).send({ 
@@ -23,7 +22,7 @@ async function publicRoutes(fastify, opts) {
   // --- FIN DE RUTA DESHABILITADA ---
 
 
-  // --- 👇 3. NUEVA RUTA DE CHECKOUT (EL "VENDEDOR" - P1 con Stripe) ---
+  // --- 👇 3. NUEVA RUTA DE CHECKOUT (CON ARREGLO TEMPORAL) ---
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
     try {
       const { publicId } = req.params;
@@ -48,13 +47,13 @@ async function publicRoutes(fastify, opts) {
          fastify.log.warn(aiError, "AI check (alias) falló, permitiendo...");
       }
 
-      // 3. Validar Creador, Límite (S1), Precio Mínimo (P2) y Onboarding de Stripe
+      // 3. Validar Creador, Límite (S1), Precio Mínimo (P2) y Onboarding
       let creator = await prisma.creator.findUnique({
         where: { publicId },
         select: { 
             id: true, name: true, baseTipAmountCents: true, dailyMsgLimit: true, 
             msgCountToday: true, msgCountLastReset: true, topicPreference: true,
-            // --- 👇 CAMPOS PARA STRIPE CONNECT 👇 ---
+            // --- 👇 CAMPOS AÑADIDOS A LA CONSULTA 👇 ---
             stripeAccountId: true,
             stripeAccountOnboarded: true
         } 
@@ -64,8 +63,9 @@ async function publicRoutes(fastify, opts) {
       }
 
       // --- 👇 VALIDACIÓN DE ONBOARDING AÑADIDA 👇 ---
+      // Esta validación es importante para el futuro.
       if (!creator.stripeAccountOnboarded || !creator.stripeAccountId) {
-        fastify.log.error(`Creador ${publicId} no tiene cuenta de Stripe conectada.`);
+        fastify.log.error(`Creador ${publicId} no tiene cuenta de Stripe conectada (simulada).`);
         return reply.code(400).send({ 
           error: "Este creador aún no ha configurado sus pagos. No puede recibir mensajes.",
           code: "CREATOR_NOT_ONBOARDED"
@@ -95,13 +95,9 @@ async function publicRoutes(fastify, opts) {
       // 4. Calcular Score Base (S6)
       const priorityScoreBase = calculatePriorityScore(totalAmountNum);
 
-      // --- 👇 BLOQUE DE LÓGICA DE PAGO STRIPE CONNECT 👇 ---
-
-      // 1. Calcular el monto del pago en centavos
+      // --- Cálculos para la comisión (aunque esté comentado, es bueno tenerlos) ---
       const tipAmountInCents = Math.round(totalAmountNum * 100);
-      
-      // 2. Calcular TU comisión (ej. 20%)
-      const APPLICATION_FEE_PERCENTAGE = 0.20; // 20%
+      const APPLICATION_FEE_PERCENTAGE = 0.20; 
       const applicationFeeInCents = Math.round(tipAmountInCents * APPLICATION_FEE_PERCENTAGE);
 
       // 5. Crear Sesión de Stripe Checkout
@@ -123,14 +119,21 @@ async function publicRoutes(fastify, opts) {
         mode: 'payment',
         customer_email: cleanEmail,
         
-        // --- 👇 ESTE ES EL BLOQUE MÁGICO DE STRIPE CONNECT 👇 ---
+        // --- 👇 MODIFICACIÓN TEMPORAL PARA PRUEBAS 👇 ---
+        // TU SIMULACIÓN DE ONBOARDING CREA UN ID FALSO ("sim_acct_...").
+        // Stripe RECHAZA este ID falso, causando el error 500.
+        // Para la PRUEBA DE FUEGO (Pasos 4-7), deshabilitamos temporalmente
+        // la transferencia de destino. El pago irá 100% a TU cuenta de plataforma.
+        // ESTO ES TEMPORAL para probar el resto del flujo.
+        /*
         payment_intent_data: {
           application_fee_amount: applicationFeeInCents, // Tu comisión
           transfer_data: {
-            destination: creator.stripeAccountId, // La cuenta del creador
+            destination: creator.stripeAccountId, // La cuenta del creador (¡ESTO FALLA!)
           },
         },
-        // --- 👆 FIN DEL BLOQUE MÁGICO 👆 ---
+        */
+        // --- 👆 FIN DE LA MODIFICACIÓN 👆 ---
 
         // --- METADATA CRÍTICA (Se envía al Webhook) ---
         metadata: {
@@ -147,7 +150,7 @@ async function publicRoutes(fastify, opts) {
         cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}?payment=failed`,
       });
 
-      fastify.log.info(`Sesión de Stripe (Connect) creada para ${publicId} (ID: ${session.id})`);
+      fastify.log.info(`Sesión de Stripe (Plataforma) creada para ${publicId} (ID: ${session.id})`);
       // Devolvemos la URL de pago al frontend
       reply.send({ url: session.url });
 
