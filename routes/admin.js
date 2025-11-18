@@ -8,13 +8,14 @@ async function adminRoutes(fastify, opts) {
   
   fastify.post(
     '/admin/check-refunds',
+    // SOLO accesible con la API Key de Admin
     { preHandler: [fastify.adminAuthenticate] }, 
     async (req, reply) => {
 
-      // --- 👇 2. USAR UN TIEMPO REAL (72 HORAS) 👇 ---
-      // 7 segundos es para pruebas locales, 72h es para producción.
-      // const timeLimitAgo = new Date(Date.now() - (7 * 1000)); // 7 segundos (para pruebas)
-      const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 72 horas
+      // --- 👇 2. AJUSTE DE TIEMPO A 2 MINUTOS PARA PRUEBA 👇 ---
+      // const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 72 horas (PRODUCCIÓN)
+      const timeLimitAgo = new Date(Date.now() - (60 * 1000)); // 2 MINUTOS (PARA PRUEBA)
+      // --- 👆 FIN DEL AJUSTE 👆 ---
 
       try {
         const outdatedTips = await prisma.chatMessage.findMany({
