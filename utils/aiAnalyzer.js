@@ -52,7 +52,7 @@ const analyzeMessage = async (content, creatorPreference) => {
     Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}". Clasifica la relevancia del mensaje a este tema con un número del 1 al 10. (10 = Totalmente Relevante).
     
     Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
-    Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
+    Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}, no seas muy estricto
     
     Mensaje del Fan: "${content}"
   `;
@@ -114,17 +114,17 @@ async function analyzeCreatorResponse(responseContent, premiumContract, lastAnon
   const questionContext = lastAnonQuestion || "la pregunta del usuario";
 
   const prompt = `
-    Eres un auditor de calidad estricto. Revisa la siguiente interacción:
+    Eres un auditor de calidad. Revisa la siguiente interacción:
 
     1.  **La Pregunta del Anónimo:** "${questionContext}"
     2.  **La Promesa del Creador (su contrato):** "${premiumContract}"
     3.  **La Respuesta del Creador:** "${responseContent}"
 
     Tu tarea es determinar si la respuesta es válida. Debe cumplir DOS condiciones:
-    1.  ¿Es una respuesta de ALTA CALIDAD que cumple la promesa del creador? (ej. no es "gracias", "saludos", "hola").
-    2.  ¿Responde DIRECTAMENTE a la pregunta del anónimo?
+    1.  ¿Es una respuesta de ALTA CALIDAD que cumple la promesa del creador?
+    2.  ¿Responde DIRECTAMENTE a la pregunta del anónimo? y si no es pregunta, acoplate al mensaje, no seas muy estricto pero tampoco dejes que no le den nada de calidad al fan, lo minimo.
 
-    Rechaza (false) si la respuesta es genérica, de bajo esfuerzo, o si ignora la pregunta del anónimo.
+    Rechaza (false) si la respuesta es muy genérica, de muy bajo esfuerzo, o si ignora totalmente al anónimo.
 
     Responde SOLAMENTE con un objeto JSON con dos claves:
     1. "cumple_promesa": (true/false)
