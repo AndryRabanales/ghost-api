@@ -1,3 +1,4 @@
+[CONTENIDO DEL ARCHIVO: andryrabanales/ghost-api/ghost-api-f22d87f45fe763a51a610f276c88add1745486e1/routes/public.js]
 // Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/routes/public.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
@@ -228,7 +229,7 @@ async function publicRoutes(fastify, opts) {
     }
   });
 
-  // --- 👇 PASO 1 (RECIBO VIVO): NUEVA RUTA GET /public/chat-from-session ---
+  // --- 👇 PASO 1 (RECIBO VIVO): RUTA GET /public/chat-from-session MODIFICADA ---
   fastify.get("/public/chat-from-session", async (req, reply) => {
     try {
       const { session_id } = req.query;
@@ -237,9 +238,6 @@ async function publicRoutes(fastify, opts) {
       }
 
       // --- LLAMADA A STRIPE PARA OBTENER EL PAYMENT INTENT ---
-      // La URL de éxito nos da el ID de la *sesión* (cs_...),
-      // pero en el webhook (stripeWebhook.js) guardamos el ID del *pago* (pi_...).
-      // Esta llamada es necesaria para vincularlos.
       const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
       const session = await stripe.checkout.sessions.retrieve(session_id);
       
@@ -253,10 +251,16 @@ async function publicRoutes(fastify, opts) {
           tipPaymentIntentId: session.payment_intent 
         },
         include: {
-          chat: { // 2. Incluir el Chat padre
+          chat: { // 2. Incluir el Chat padre y el Creador
             select: {
               id: true,
-              anonToken: true
+              anonToken: true,
+              anonAlias: true, // <-- AÑADIDO
+              creator: {      // <-- AÑADIDO
+                select: {
+                  name: true
+                }
+              }
             }
           }
         }
@@ -264,7 +268,6 @@ async function publicRoutes(fastify, opts) {
 
       if (!message || !message.chat) {
         fastify.log.warn(`Recibo vivo: No se encontró el chat para la session_id ${session_id} (PaymentIntent: ${session.payment_intent})`);
-        // Esto puede pasar si el usuario llega aquí ANTES de que el webhook de Stripe termine.
         return reply.code(404).send({ error: "Chat no encontrado. El pago podría estar procesándose. Intenta de nuevo en unos segundos." });
       }
 
@@ -272,7 +275,13 @@ async function publicRoutes(fastify, opts) {
       fastify.log.info(`Recibo vivo: Entregando token para chat ${message.chat.id}`);
       reply.send({
         chatId: message.chat.id,
-        anonToken: message.chat.anonToken
+        anonToken: message.chat.anonToken,
+        // --- 👇 DATOS ADICIONALES PARA LOCALSTORAGE 👇 ---
+        creatorName: message.chat.creator.name,
+        anonAlias: message.chat.anonAlias,
+        preview: message.content, // El contenido del mensaje
+        ts: message.createdAt // La fecha de creación del mensaje
+        // --- 👆 FIN DE DATOS ADICIONALES 👆 ---
       });
 
     } catch (err) {
@@ -280,7 +289,7 @@ async function publicRoutes(fastify, opts) {
       reply.code(500).send({ error: err.message || "Error al recuperar el chat" });
     }
   });
-  // --- 👆 FIN DE NUEVA RUTA 👆 ---
+  // --- 👆 FIN DE RUTA MODIFICADA 👆 ---
 }
 
 module.exports = publicRoutes;
