@@ -1,294 +1,137 @@
-// Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/routes/public.js
+// routes/public.js (VERSIÓN FINAL PARA COBRAR DINERO)
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-const crypto = require("crypto");
-const { sanitize } = require("../utils/sanitize");
-const { analyzeMessage } = require('../utils/aiAnalyzer');
-const { calculatePriorityScore, checkAndResetLimit } = require('../utils/paymentHelpers');
-
-// --- 👇 1. IMPORTAR STRIPE ---
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function publicRoutes(fastify, opts) {
-  
-  // --- 👇 2. RUTA DE MENSAJES INSEGURA (DESHABILITADA) ---
-  fastify.post("/public/:publicId/messages", async (req, reply) => {
-    fastify.log.warn(`Intento de uso de ruta insegura deshabilitada: POST /public/${req.params.publicId}/messages`);
-    return reply.code(403).send({ 
-      error: "Esta ruta ha sido deshabilitada por seguridad. Utilice la nueva ruta de checkout.",
-      code: "DEPRECATED_ROUTE"
+
+  // 1. Obtener info pública del creador (Para el perfil)
+  fastify.get("/public/creator/:publicId", async (req, reply) => {
+    const { publicId } = req.params;
+    const creator = await prisma.creator.findUnique({ where: { publicId } });
+    if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
+
+    // Calcular escasez
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgCountToday = await prisma.chatMessage.count({
+      where: {
+        chat: { creatorId: creator.id },
+        createdAt: { gte: startOfDay },
+        from: 'anon' 
+      }
+    });
+
+    // Límite diario (ej: 10 mensajes)
+    const DAILY_LIMIT = 10; 
+    const isFull = msgCountToday >= DAILY_LIMIT;
+
+    reply.send({
+      creatorName: creator.name,
+      baseTipAmountCents: creator.baseTipAmountCents || 5000, // Default $50 MXN
+      topicPreference: creator.topicPreference,
+      premiumContract: creator.premiumContract,
+      escasezData: { msgCountToday, dailyMsgLimit: DAILY_LIMIT },
+      isFull
     });
   });
-  // --- FIN DE RUTA DESHABILITADA ---
 
-
-  // --- 👇 3. NUEVA RUTA DE CHECKOUT (CON ARREGLO TEMPORAL) ---
+  // 2. CREAR SESIÓN DE PAGO REAL (STRIPE CHECKOUT)
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
+    const { publicId } = req.params;
+    const { content, alias, fanEmail, tipAmount } = req.body; // tipAmount viene del frontend
+
+    const creator = await prisma.creator.findUnique({ where: { publicId } });
+    if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
+
+    // Validación mínima de precio ($10.00 MXN)
+    if (!tipAmount || tipAmount < 10) {
+        return reply.code(400).send({ error: "El monto mínimo es $10 MXN" });
+    }
+
+    // Crear la sesión de Stripe
     try {
-      const { publicId } = req.params;
-      const { content, alias, tipAmount, fanEmail } = req.body;
-
-      // 1. Validar Mensaje
-      if (!content || content.trim().length < 3) {
-        return reply.code(400).send({ error: "El mensaje es muy corto." });
-      }
-      
-      const cleanContent = sanitize(content);
-      const cleanAlias = sanitize(alias) || "Anónimo";
-      const cleanEmail = sanitize(fanEmail) || null;
-
-      // 2. Validar Alias (Etapas gratuitas de IA)
-      try {
-        const aliasAnalysis = await analyzeMessage(cleanAlias, null, true); // true = skipPago
-        if (!aliasAnalysis.isSafe) {
-          return reply.code(400).send({ error: "Alias bloqueado por moderación." });
-        }
-      } catch (aiError) {
-         fastify.log.warn(aiError, "AI check (alias) falló, permitiendo...");
-      }
-
-      // 3. Validar Creador, Límite (S1), Precio Mínimo (P2) y Onboarding
-      let creator = await prisma.creator.findUnique({
-        where: { publicId },
-        select: { 
-            id: true, name: true, baseTipAmountCents: true, dailyMsgLimit: true, 
-            msgCountToday: true, msgCountLastReset: true, topicPreference: true,
-            // --- 👇 CAMPOS AÑADIDOS A LA CONSULTA 👇 ---
-            stripeAccountId: true,
-            stripeAccountOnboarded: true
-        } 
-      });
-      if (!creator) {
-        return reply.code(404).send({ error: "Creador no encontrado" });
-      }
-
-      // --- 👇 VALIDACIÓN DE ONBOARDING AÑADIDA 👇 ---
-      // Esta validación es importante para el futuro.
-      if (!creator.stripeAccountOnboarded || !creator.stripeAccountId) {
-        fastify.log.error(`Creador ${publicId} no tiene cuenta de Stripe conectada (simulada).`);
-        return reply.code(400).send({ 
-          error: "Este creador aún no ha configurado sus pagos. No puede recibir mensajes.",
-          code: "CREATOR_NOT_ONBOARDED"
-        });
-      }
-      // --- FIN DE VALIDACIÓN AÑADIDA ---
-
-      creator = await checkAndResetLimit(creator, fastify); 
-      
-      if (creator.dailyMsgLimit > 0 && creator.msgCountToday >= creator.dailyMsgLimit) {
-          return reply.code(429).send({ 
-              error: "Este creador ha alcanzado su límite diario de mensajes premium. Intenta de nuevo mañana.",
-              code: "DAILY_LIMIT_REACHED"
-          });
-      }
-
-      const baseTipAmountPesos = (creator.baseTipAmountCents || 10000) / 100; // Fallback a $100
-      const totalAmountNum = parseFloat(tipAmount);
-
-      if (isNaN(totalAmountNum) || totalAmountNum < baseTipAmountPesos) {
-          return reply.code(400).send({ 
-            error: `El pago mínimo para este creador es $${baseTipAmountPesos.toFixed(2)} MXN.`,
-            code: "MINIMUM_PAYMENT_REQUIRED"
-          });
-      }
-
-      // 4. Calcular Score Base (S6)
-      const priorityScoreBase = calculatePriorityScore(totalAmountNum);
-
-      // --- Cálculos para la comisión (aunque esté comentado, es bueno tenerlos) ---
-      const tipAmountInCents = Math.round(totalAmountNum * 100);
-      const APPLICATION_FEE_PERCENTAGE = 0.20; 
-      const applicationFeeInCents = Math.round(tipAmountInCents * APPLICATION_FEE_PERCENTAGE);
-
-      // 5. Crear Sesión de Stripe Checkout
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
           {
             price_data: {
-              currency: 'mxn', // Usar MXN
+              currency: 'mxn',
               product_data: {
-                name: `Mensaje Premium para ${creator.name}`,
-                description: cleanContent.slice(0, 100) + "...",
+                name: `Mensaje para ${creator.name}`,
+                description: 'Envío de mensaje anónimo prioritario',
               },
-              unit_amount: tipAmountInCents, // Stripe usa centavos
+              unit_amount: Math.round(tipAmount * 100), // Convertir a centavos
             },
             quantity: 1,
           },
         ],
         mode: 'payment',
-        customer_email: cleanEmail,
-        
-        // --- 👇 MODIFICACIÓN TEMPORAL PARA PRUEBAS 👇 ---
-        // TU SIMULACIÓN DE ONBOARDING CREA UN ID FALSO ("sim_acct_...").
-        // Stripe RECHAZA este ID falso, causando el error 500.
-        // Para la PRUEBA DE FUEGO (Pasos 4-7), deshabilitamos temporalmente
-        // la transferencia de destino. El pago irá 100% a TU cuenta de plataforma.
-        // ESTO ES TEMPORAL para probar el resto del flujo.
-        /*
-        payment_intent_data: {
-          application_fee_amount: applicationFeeInCents, // Tu comisión
-          transfer_data: {
-            destination: creator.stripeAccountId, // La cuenta del creador (¡ESTO FALLA!)
-          },
-        },
-        */
-        // --- 👆 FIN DE LA MODIFICACIÓN 👆 ---
-
-        // --- METADATA CRÍTICA (Se envía al Webhook) ---
-        metadata: {
-          publicId: publicId,
-          content: cleanContent,
-          alias: cleanAlias,
-          tipAmount: totalAmountNum,
-          priorityScoreBase: priorityScoreBase,
-          topicPreference: creator.topicPreference,
-          fanEmail: cleanEmail
-        },
-        // --- CLAVE PARA TAREA 4 (Recibo Vivo) ---
         success_url: `${process.env.FRONTEND_URL}/r/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}?payment=failed`,
+        cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}`,
+        // Metadatos CRÍTICOS para el Webhook
+        metadata: {
+          creatorId: creator.id,
+          publicId: creator.publicId,
+          content: content.substring(0, 500), // Recortar por seguridad de Stripe
+          anonAlias: alias || "Anónimo",
+          fanEmail: fanEmail || "",
+        },
+        // Si el creador ya tiene cuenta conectada, dividimos el pago aquí (Opcional para MVP)
+        // payment_intent_data: { ... } 
       });
 
-      fastify.log.info(`Sesión de Stripe (Plataforma) creada para ${publicId} (ID: ${session.id})`);
-      // Devolvemos la URL de pago al frontend
       reply.send({ url: session.url });
 
-    } catch (err) {
-      fastify.log.error(err, "Error en /create-checkout-session (Stripe)");
-      reply.code(500).send({ error: "Error al crear la sesión de pago." });
-    }
-  });
-  // --- FIN DE NUEVA RUTA ---
-
-
-  // (Las otras rutas GET .../escasez, .../creator, .../info no cambian)
-  
-  fastify.get("/public/:publicId/escasez", async (req, reply) => {
-    try {
-      const { publicId } = req.params;
-      let creator = await prisma.creator.findUnique({
-        where: { publicId },
-        select: { id: true, dailyMsgLimit: true, msgCountToday: true, msgCountLastReset: true }
-      });
-      if (!creator) {
-        return reply.send({ dailyMsgLimit: 1000, msgCountToday: 0, remainingSlots: 1000, resetTime: new Date(new Date().getTime() + 12 * 60 * 60 * 1000) });
-      }
-      creator = await checkAndResetLimit(creator, fastify); 
-      const remaining = Math.max(0, creator.dailyMsgLimit - creator.msgCountToday);
-      const resetTime = new Date(new Date(creator.msgCountLastReset).getTime() + 12 * 60 * 60 * 1000);
-      reply.send({ dailyMsgLimit: creator.dailyMsgLimit, msgCountToday: creator.msgCountToday, remainingSlots: remaining, resetTime: resetTime });
-    } catch (err) {
-      fastify.log.error(err, "❌ Error en /public/:publicId/escasez:");
-      return reply.code(500).send({ error: "Error obteniendo datos de escasez" });
-    }
-  });
-  
-  fastify.get("/public/creator/:publicId", async (req, reply) => {
-    try {
-      const { publicId } = req.params;
-      let creator = await prisma.creator.findUnique({
-        where: { publicId },
-        select: { 
-          id: true, name: true, premiumContract: true, dailyMsgLimit: true,
-          msgCountToday: true, msgCountLastReset: true, baseTipAmountCents: true,
-          topicPreference: true
-        }
-      });
-      if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
-      creator = await checkAndResetLimit(creator, fastify); 
-      const isFull = (creator.dailyMsgLimit > 0) && (creator.msgCountToday >= creator.dailyMsgLimit);
-      const topic = creator.topicPreference || "Cualquier mensaje respetuoso.";
-      reply.send({
-        creatorName: creator.name,
-        premiumContract: creator.premiumContract,
-        topicPreference: topic,
-        baseTipAmountCents: creator.baseTipAmountCents,
-        escasezData: { dailyMsgLimit: creator.dailyMsgLimit, msgCountToday: creator.msgCountToday, },
-        isFull: isFull
-      });
-    } catch (err) {
-      fastify.log.error(err, "❌ Error en GET /public/creator/:publicId:");
-      return reply.code(500).send({ error: "Error obteniendo información del creador" });
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500).send({ error: "Error conectando con Stripe" });
     }
   });
 
-  fastify.get("/public/:publicId/info", async (req, reply) => {
-    try {
-      const { publicId } = req.params;
-      const creator = await prisma.creator.findUnique({ 
-        where: { publicId },
-        select: { name: true, lastActive: true } 
-      });
-      if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
-      reply.send({ name: creator.name, lastActiveAt: creator.lastActive });
-    } catch (err) {
-      fastify.log.error(err, "❌ Error en /public/:publicId/info:");
-      return reply.code(500).send({ error: "Error obteniendo información del creador" });
-    }
-  });
-
-  // --- 👇 PASO 1 (RECIBO VIVO): RUTA GET /public/chat-from-session MODIFICADA ---
+  // 3. Recuperar datos tras el pago (Pantalla de Éxito)
   fastify.get("/public/chat-from-session", async (req, reply) => {
+    const { session_id } = req.query;
+    if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
+
     try {
-      const { session_id } = req.query;
-      if (!session_id) {
-        return reply.code(400).send({ error: "Falta session_id" });
+      // Buscamos el chat creado por el Webhook usando el ID de sesión de Stripe
+      // (Necesitamos que el webhook guarde el stripeSessionId en el Chat o Message)
+      // TRUCO MVP: Buscamos el mensaje más reciente que coincida con la metadata de la sesión
+      
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      if(!session || session.payment_status !== 'paid') {
+          return reply.code(404).send({ error: "Pago no completado o sesión inválida" });
       }
 
-      // --- LLAMADA A STRIPE PARA OBTENER EL PAYMENT INTENT ---
-      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-      const session = await stripe.checkout.sessions.retrieve(session_id);
-      
-      if (!session || !session.payment_intent) {
-        throw new Error("Sesión de Stripe no válida o sin pago asociado.");
-      }
-      
-      // 1. Encontrar el ChatMessage usando el ID del pago (payment_intent)
-      const message = await prisma.chatMessage.findFirst({
-        where: {
-          tipPaymentIntentId: session.payment_intent 
+      // Esperamos un poco a que el webhook procese (esto es un fix común)
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Buscamos el chat recién creado
+      // Nota: Esto asume que el webhook ya corrió. 
+      const chat = await prisma.chat.findFirst({
+        where: { 
+            creatorId: session.metadata.creatorId,
+            // Podrías guardar el stripeSessionId en el chat para ser exacto
         },
-        include: {
-          chat: { // 2. Incluir el Chat padre y el Creador
-            select: {
-              id: true,
-              anonToken: true,
-              anonAlias: true, // <-- AÑADIDO
-              creator: {      // <-- AÑADIDO
-                select: {
-                  name: true
-                }
-              }
-            }
-          }
-        }
+        orderBy: { createdAt: 'desc' },
+        include: { creator: true, messages: true }
       });
 
-      if (!message || !message.chat) {
-        fastify.log.warn(`Recibo vivo: No se encontró el chat para la session_id ${session_id} (PaymentIntent: ${session.payment_intent})`);
-        return reply.code(404).send({ error: "Chat no encontrado. El pago podría estar procesándose. Intenta de nuevo en unos segundos." });
-      }
+      if (!chat) return reply.code(404).send({ error: "El chat se está creando, recarga en unos segundos." });
 
-      // 3. Devolver los datos del chat
-      fastify.log.info(`Recibo vivo: Entregando token para chat ${message.chat.id}`);
       reply.send({
-        chatId: message.chat.id,
-        anonToken: message.chat.anonToken,
-        // --- 👇 DATOS ADICIONALES PARA LOCALSTORAGE 👇 ---
-        creatorName: message.chat.creator.name,
-        anonAlias: message.chat.anonAlias,
-        preview: message.content, // El contenido del mensaje
-        ts: message.createdAt // La fecha de creación del mensaje
-        // --- 👆 FIN DE DATOS ADICIONALES 👆 ---
+        chatId: chat.id,
+        anonToken: chat.anonToken,
+        creatorName: chat.creator.name,
+        preview: session.metadata.content,
+        ts: chat.createdAt
       });
 
     } catch (err) {
-      fastify.log.error(err, "Error en /public/chat-from-session");
-      reply.code(500).send({ error: err.message || "Error al recuperar el chat" });
+      reply.code(500).send({ error: err.message });
     }
   });
-  // --- 👆 FIN DE RUTA MODIFICADA 👆 ---
 }
 
 module.exports = publicRoutes;

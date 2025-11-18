@@ -11,7 +11,7 @@ async function sendAccessLinkEmail(email, chatUrl, creatorName, contentPreview) 
   try {
     const { data, error } = await resend.emails.send({
       // 👇 CAMBIO IMPORTANTE: Usamos el dominio de pruebas de Resend
-      from: 'Ghosty <onboarding@resend.dev>', 
+      from: 'Ghosty <noreply@ghostmsg.space>', 
       to: [email], // En modo prueba, este email debe ser el mismo con el que te registraste en Resend
       subject: `Tu mensaje para ${creatorName} fue enviado 👻`,
       html: `
