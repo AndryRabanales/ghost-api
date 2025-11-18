@@ -45,7 +45,6 @@ async function creatorsRoutes(fastify, opts) {
   });
 
   // --- RUTA (GET /creators/me) ---
-  // --- CAMBIO: Ahora devuelve 'baseTipAmountCents' ---
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -128,7 +127,7 @@ async function creatorsRoutes(fastify, opts) {
 
         const simulatedStripeUrl = "https://connect.stripe.com/setup/s/simulated-onboarding-link";
 
-        // --- 👇 LA CORRECCIÓN ESTÁ AQUÍ 👇 ---
+        // --- 👇 FIX 1 (Idempotencia) 👇 ---
         // Si el creador YA ESTÁ onboardeado, no intentes actualizar la DB.
         // Solo envíale el link de nuevo.
         if (creator.stripeAccountOnboarded && creator.stripeAccountId) {
@@ -136,23 +135,28 @@ async function creatorsRoutes(fastify, opts) {
           // Simplemente enviamos el link sin tocar la DB
           return reply.send({ onboarding_url: simulatedStripeUrl });
         }
-        // --- 👆 FIN DE LA CORRECCIÓN 👆 ---
+        // --- 👆 FIN DE FIX 1 👆 ---
 
-        // Si es la primera vez, actualiza la DB como antes.
+        // Si es la primera vez, actualiza la DB...
         fastify.log.info(`✅ (SIMULADO) Link de Onboarding INICIAL generado para ${creator.id}`);
+        
+        // --- 👇 FIX 2 (Unicidad) 👇 ---
+        // Genera un ID simulado ÚNICO para este creador
+        const simulatedUniqueAccountId = `sim_acct_${crypto.randomBytes(8).toString('hex')}`;
+        // --- 👆 FIN DE FIX 2 👆 ---
         
         await prisma.creator.update({
           where: { id: creator.id },
           data: { 
             stripeAccountOnboarded: true, 
-            stripeAccountId: "sim_acct_12345" // ID simulado
+            stripeAccountId: simulatedUniqueAccountId // <-- Usar el ID único
           },
         });
 
         reply.send({ onboarding_url: simulatedStripeUrl });
 
       } catch (err) {
-        // Este catch ahora solo se activará por errores REALES, no por duplicados.
+        // Este catch ahora solo se activará por errores REALES.
         fastify.log.error("❌ Error en /creators/stripe-onboarding (Simulado):", err);
         reply.code(500).send({ error: "Error al simular el link de Stripe Connect" });
       }
@@ -171,7 +175,7 @@ async function creatorsRoutes(fastify, opts) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      const MAX_LENGTH = 120; // Límite que ya tenías en el frontend
+      const MAX_LENGTH = 120;
       if (typeof premiumContract !== 'string' || premiumContract.length > MAX_LENGTH) {
         return reply.code(400).send({ error: "Datos de contrato inválidos o exceden el límite de caracteres." });
       }
@@ -204,13 +208,13 @@ async function creatorsRoutes(fastify, opts) {
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       const { creatorId } = req.params;
-      const { topicPreference } = req.body; // El tema que el creador quiere
+      const { topicPreference } = req.body; 
 
       if (req.user.id !== creatorId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
 
-      const MAX_LENGTH = 100; // Suficiente para describir el nicho
+      const MAX_LENGTH = 100; 
 
       if (typeof topicPreference !== 'string' || topicPreference.length > MAX_LENGTH) {
         return reply.code(400).send({ error: `La preferencia de tema es inválida o excede los ${MAX_LENGTH} caracteres.` });
@@ -225,7 +229,6 @@ async function creatorsRoutes(fastify, opts) {
           select: { topicPreference: true, publicId: true }
         });
 
-        // Notificar a la página pública que el precio cambió
         fastify.broadcastToPublic(updatedCreator.publicId, {
             type: 'CREATOR_INFO_UPDATE',
             topicPreference: updatedCreator.topicPreference,
@@ -238,7 +241,6 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
-  // --- FIN RUTA NUEVA ---
   
   // --- RUTA NUEVA: Para guardar la configuración de precio ---
   fastify.post(
@@ -265,7 +267,6 @@ async function creatorsRoutes(fastify, opts) {
           select: { baseTipAmountCents: true, publicId: true }
         });
 
-        // Notificar a la página pública que el precio cambió
         fastify.broadcastToPublic(updatedCreator.publicId, {
             type: 'CREATOR_INFO_UPDATE',
             baseTipAmountCents: updatedCreator.baseTipAmountCents,
@@ -278,11 +279,8 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
-  // --- FIN RUTA NUEVA ---
-
 
   // --- RUTA (GET /dashboard/:dashboardId/chats) ---
-  // --- CAMBIO: Ordenar por 'priorityScore' ---
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
@@ -298,7 +296,7 @@ async function creatorsRoutes(fastify, opts) {
           include: {
             messages: {
               orderBy: { createdAt: "desc" }, 
-              take: 1, // Tomamos el último mensaje (que tiene el score)
+              take: 1, 
             },
           },
         });
@@ -312,23 +310,18 @@ async function creatorsRoutes(fastify, opts) {
           previewMessage: chat.messages[0] || null
         }));
         
-        // --- CAMBIO: Ordenar por 'priorityScore' usando tu fórmula ---
         formatted.sort((a, b) => {
-            // 1. Obtener el puntaje de prioridad (usamos 0 si no hay)
             const scoreA = a.previewMessage?.priorityScore || 0;
             const scoreB = b.previewMessage?.priorityScore || 0;
             
-            // Prioridad principal: Puntaje (mayor a menor)
             if (scoreA !== scoreB) {
-                return scoreB - scoreA; // Mayor puntaje primero
+                return scoreB - scoreA; 
             }
             
-            // Prioridad secundaria: Fecha (más reciente primero)
             const dateA = new Date(a.previewMessage?.createdAt || a.createdAt).getTime();
             const dateB = new Date(b.previewMessage?.createdAt || b.createdAt).getTime();
             return dateB - dateA;
         });
-        // --- FIN CAMBIO ---
         
         reply.send(formatted); 
       
