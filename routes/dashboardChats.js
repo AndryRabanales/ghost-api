@@ -27,7 +27,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       }
 
       // --- 👇 2. MODIFICACIÓN: BARRERA DE CALIDAD MÍNIMA (40) 👇 ---
-      const MIN_LENGTH = 40; // Subido a 50 caracteres
+      const MIN_LENGTH = 40; // Subido a 40 caracteres
       if (!cleanContent || cleanContent.trim().length < MIN_LENGTH) {
         return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres.` });
       }

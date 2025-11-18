@@ -1,13 +1,16 @@
-// andryrabanales/ghost-api/ghost-api-abfc35e2f3750c5ab2764fb71701208dc948b301/routes/creators.js
+// routes/creators.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 const livesUtils = require('../utils/lives'); 
 const { sanitize } = require("../utils/sanitize");
 
+// --- 1. IMPORTAR STRIPE ---
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
 async function creatorsRoutes(fastify, opts) {
   
-  // ... (ruta POST /creators - sin cambios) ...
+  // --- RUTA POST /creators (Crear cuenta inicial) ---
   fastify.post("/creators", async (req, reply) => {
     try {
       const { name } = req.body;
@@ -44,7 +47,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // --- RUTA (GET /creators/me) ---
+  // --- RUTA GET /creators/me (Obtener perfil y balance) ---
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -57,7 +60,7 @@ async function creatorsRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Creator no encontrado" });
       }
 
-      // --- LÓGICA DE EXPIRACIÓN DE PREMIUM (sin cambios) ---
+      // --- Lógica de Expiración Premium ---
       if (creator.isPremium && creator.premiumExpiresAt && new Date() > new Date(creator.premiumExpiresAt)) {
         creator = await prisma.creator.update({
           where: { id: creator.id },
@@ -66,18 +69,21 @@ async function creatorsRoutes(fastify, opts) {
         fastify.log.info(`La suscripción Premium para ${creator.id} ha expirado.`);
       }
  
-      // --- LÓGICA DE VIDAS (sin cambios) ---
+      // --- Lógica de Vidas ---
       const updated = await livesUtils.refillLivesIfNeeded(creator);
 
-      // --- CÁLCULO DE BALANCE (sin cambios) ---
+      // --- Cálculo de Balance ---
+      // Solo sumamos 'FULFILLED' para el balance disponible
       const availableBalanceResult = await prisma.chatMessage.aggregate({
         _sum: { tipAmount: true },
         where: {
           chat: { creatorId: creator.id },
-          tipStatus: 'FULFILLED',
+          tipStatus: 'FULFILLED', // Solo lo que ya se respondió y no se ha pagado
           from: 'anon'
         },
       });
+      
+      // Balance pendiente (aún no respondido)
       const pendingBalanceResult = await prisma.chatMessage.aggregate({
         _sum: { tipAmount: true },
         where: {
@@ -86,6 +92,7 @@ async function creatorsRoutes(fastify, opts) {
           from: 'anon'
         },
       });
+
       const availableBalance = availableBalanceResult._sum.tipAmount || 0;
       const pendingBalance = pendingBalanceResult._sum.tipAmount || 0;
 
@@ -103,9 +110,7 @@ async function creatorsRoutes(fastify, opts) {
         availableBalance: availableBalance,
         pendingBalance: pendingBalance,
         premiumContract: updated.premiumContract || "Respuesta de alta calidad.",
-        // --- CAMBIO: Devolver el precio base ---
         baseTipAmountCents: updated.baseTipAmountCents,
-        // --- AÑADIDO: Devolver preferencia de tema ---
         topicPreference: updated.topicPreference || "Cualquier mensaje respetuoso."
       });
     } catch (err) {
@@ -114,56 +119,137 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
   
-  // --- RUTA (P5): SIMULACIÓN DE STRIPE ONBOARDING (CORREGIDA) ---
+  // --- RUTA REAL: STRIPE ONBOARDING (EXPRESS) ---
   fastify.post(
     "/creators/stripe-onboarding",
     { preHandler: [fastify.authenticate] },
     async (req, reply) => {
       try {
         const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
-        if (!creator) {
-          return reply.code(404).send({ error: "Creador no encontrado" });
+        if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
+
+        let accountId = creator.stripeAccountId;
+
+        // 1. Si no tiene cuenta de Stripe, creamos una (Express)
+        if (!accountId) {
+          const account = await stripe.accounts.create({
+            type: 'express',
+            country: 'MX', // Ajusta según tu país principal ('US', 'ES', etc.)
+            email: creator.email,
+            capabilities: {
+              card_payments: { requested: true },
+              transfers: { requested: true },
+            },
+          });
+          accountId = account.id;
+
+          // Guardamos el ID real en la BD
+          await prisma.creator.update({
+            where: { id: creator.id },
+            data: { stripeAccountId: accountId },
+          });
         }
 
-        const simulatedStripeUrl = "https://connect.stripe.com/setup/s/simulated-onboarding-link";
-
-        // --- 👇 FIX 1 (Idempotencia) 👇 ---
-        // Si el creador YA ESTÁ onboardeado, no intentes actualizar la DB.
-        // Solo envíale el link de nuevo.
-        if (creator.stripeAccountOnboarded && creator.stripeAccountId) {
-          fastify.log.info(`✅ (SIMULADO) Link de Onboarding RE-GENERADO para ${creator.id}`);
-          // Simplemente enviamos el link sin tocar la DB
-          return reply.send({ onboarding_url: simulatedStripeUrl });
-        }
-        // --- 👆 FIN DE FIX 1 👆 ---
-
-        // Si es la primera vez, actualiza la DB...
-        fastify.log.info(`✅ (SIMULADO) Link de Onboarding INICIAL generado para ${creator.id}`);
-        
-        // --- 👇 FIX 2 (Unicidad) 👇 ---
-        // Genera un ID simulado ÚNICO para este creador
-        const simulatedUniqueAccountId = `sim_acct_${crypto.randomBytes(8).toString('hex')}`;
-        // --- 👆 FIN DE FIX 2 👆 ---
-        
-        await prisma.creator.update({
-          where: { id: creator.id },
-          data: { 
-            stripeAccountOnboarded: true, 
-            stripeAccountId: simulatedUniqueAccountId // <-- Usar el ID único
-          },
+        // 2. Generamos el link de onboarding de Stripe
+        const accountLink = await stripe.accountLinks.create({
+          account: accountId,
+          refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?stripe=refresh`,
+          return_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?stripe=return`,
+          type: 'account_onboarding',
         });
 
-        reply.send({ onboarding_url: simulatedStripeUrl });
+        // 3. Devolvemos la URL real
+        reply.send({ onboarding_url: accountLink.url });
 
       } catch (err) {
-        // Este catch ahora solo se activará por errores REALES.
-        fastify.log.error("❌ Error en /creators/stripe-onboarding (Simulado):", err);
-        reply.code(500).send({ error: "Error al simular el link de Stripe Connect" });
+        fastify.log.error("❌ Error en Stripe Onboarding:", err);
+        reply.code(500).send({ error: "Error al conectar con Stripe." });
       }
     }
   );
 
-  // --- RUTA (S3): Actualizar el contrato Premium. ---
+  // --- RUTA REAL: RETIRAR FONDOS (PAYOUT) ---
+  fastify.post(
+    "/creators/payout",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const creatorId = req.user.id;
+        const creator = await prisma.creator.findUnique({ where: { id: creatorId } });
+
+        if (!creator.stripeAccountId || !creator.stripeAccountOnboarded) {
+            return reply.code(400).send({ error: "No tienes una cuenta bancaria conectada." });
+        }
+
+        // 1. Calcular saldo disponible REAL
+        const payableMessages = await prisma.chatMessage.findMany({
+            where: {
+                chat: { creatorId: creatorId },
+                tipStatus: 'FULFILLED', // Solo mensajes respondidos
+                from: 'anon'
+            }
+        });
+        
+        const amountToPay = payableMessages.reduce((sum, msg) => sum + (msg.tipAmount || 0), 0);
+        
+        // Mínimo 50 pesos para transferir (Stripe tiene límites mínimos)
+        if (amountToPay < 50) { 
+             return reply.code(400).send({ error: "El saldo mínimo para retirar es $50 MXN." });
+        }
+
+        // 2. Transferencia a la cuenta conectada
+        const transfer = await stripe.transfers.create({
+          amount: Math.floor(amountToPay * 100), // Stripe usa centavos
+          currency: "mxn",
+          destination: creator.stripeAccountId,
+        });
+
+        // 3. MARCAR MENSAJES COMO PAGADOS
+        // Usamos 'PAID_OUT' (asegúrate de que tu frontend no muestre esto como pendiente)
+        // O alternativamente, usa un campo 'payoutId' si prefieres no cambiar el status.
+        const messageIds = payableMessages.map(m => m.id);
+        
+        // Nota: Si usas Enum en Prisma para tipStatus, debes agregar 'PAID_OUT' al schema primero.
+        // Si es String, esto funciona directo.
+        await prisma.chatMessage.updateMany({
+            where: { id: { in: messageIds } },
+            data: { tipStatus: 'PAID_OUT' } 
+        });
+
+        fastify.log.info(`💸 Payout exitoso de $${amountToPay} a ${creatorId}`);
+        reply.send({ success: true, amount: amountToPay, transferId: transfer.id });
+
+      } catch (err) {
+        fastify.log.error("❌ Error en Payout:", err);
+        reply.code(500).send({ error: err.message || "Error procesando el retiro." });
+      }
+    }
+  );
+
+  // --- RUTA AUXILIAR: Verificar estado de Stripe ---
+  // Sirve para que el frontend sepa si cambiar el botón de "Configurar" a "Retirar"
+  fastify.get("/creators/stripe-status", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+      try {
+          const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
+          if(!creator.stripeAccountId) return reply.send({ onboarded: false });
+          
+          const account = await stripe.accounts.retrieve(creator.stripeAccountId);
+          const isOnboarded = account.charges_enabled; // Si true, ya puede cobrar
+          
+          if (isOnboarded && !creator.stripeAccountOnboarded) {
+              await prisma.creator.update({
+                  where: { id: creator.id },
+                  data: { stripeAccountOnboarded: true }
+              });
+          }
+          
+          reply.send({ onboarded: isOnboarded });
+      } catch(err) {
+          reply.send({ onboarded: false });
+      }
+  });
+
+  // --- RUTA: Actualizar contrato (Sin cambios) ---
   fastify.post(
     "/creators/:creatorId/update-contract",
     { preHandler: [fastify.authenticate] },
@@ -177,7 +263,7 @@ async function creatorsRoutes(fastify, opts) {
 
       const MAX_LENGTH = 120;
       if (typeof premiumContract !== 'string' || premiumContract.length > MAX_LENGTH) {
-        return reply.code(400).send({ error: "Datos de contrato inválidos o exceden el límite de caracteres." });
+        return reply.code(400).send({ error: "Datos de contrato inválidos o exceden el límite." });
       }
       
       const cleanContract = sanitize(premiumContract);
@@ -202,7 +288,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   );
 
-  // --- RUTA NUEVA: Para guardar la preferencia temática del creador (E4) ---
+  // --- RUTA: Guardar preferencia de tema (Sin cambios) ---
   fastify.post(
     "/creators/:creatorId/update-topic",
     { preHandler: [fastify.authenticate] },
@@ -215,9 +301,8 @@ async function creatorsRoutes(fastify, opts) {
       }
 
       const MAX_LENGTH = 100; 
-
       if (typeof topicPreference !== 'string' || topicPreference.length > MAX_LENGTH) {
-        return reply.code(400).send({ error: `La preferencia de tema es inválida o excede los ${MAX_LENGTH} caracteres.` });
+        return reply.code(400).send({ error: `La preferencia de tema excede los ${MAX_LENGTH} caracteres.` });
       }
 
       const cleanTopic = sanitize(topicPreference);
@@ -236,13 +321,13 @@ async function creatorsRoutes(fastify, opts) {
 
         reply.send({ success: true, topicPreference: updatedCreator.topicPreference });
       } catch (err) {
-        fastify.log.error("❌ Error al actualizar preferencia de tema:", err);
+        fastify.log.error("❌ Error al actualizar tema:", err);
         reply.code(500).send({ error: "Error interno al guardar el tema." });
       }
     }
   );
   
-  // --- RUTA NUEVA: Para guardar la configuración de precio ---
+  // --- RUTA: Guardar precio base (Sin cambios) ---
   fastify.post(
     "/creators/:creatorId/settings",
     { preHandler: [fastify.authenticate] },
@@ -274,13 +359,13 @@ async function creatorsRoutes(fastify, opts) {
 
         reply.send({ success: true, baseTipAmountCents: updatedCreator.baseTipAmountCents });
       } catch (err) {
-        fastify.log.error("❌ Error al actualizar precio base:", err);
+        fastify.log.error("❌ Error al actualizar precio:", err);
         reply.code(500).send({ error: "Error interno al guardar el precio." });
       }
     }
   );
 
-  // --- RUTA (GET /dashboard/:dashboardId/chats) ---
+  // --- RUTA GET /dashboard/chats (Listar chats) ---
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
@@ -310,13 +395,12 @@ async function creatorsRoutes(fastify, opts) {
           previewMessage: chat.messages[0] || null
         }));
         
+        // Ordenar por prioridad ($) y luego por fecha
         formatted.sort((a, b) => {
             const scoreA = a.previewMessage?.priorityScore || 0;
             const scoreB = b.previewMessage?.priorityScore || 0;
             
-            if (scoreA !== scoreB) {
-                return scoreB - scoreA; 
-            }
+            if (scoreA !== scoreB) return scoreB - scoreA; 
             
             const dateA = new Date(a.previewMessage?.createdAt || a.createdAt).getTime();
             const dateB = new Date(b.previewMessage?.createdAt || b.createdAt).getTime();
@@ -326,7 +410,7 @@ async function creatorsRoutes(fastify, opts) {
         reply.send(formatted); 
       
       } catch (err) {
-        fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
+        fastify.log.error("❌ Error en GET chats:", err);
         reply.code(500).send({ error: "Error obteniendo chats" });
       }
     }
