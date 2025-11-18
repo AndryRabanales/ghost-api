@@ -1,4 +1,3 @@
-[CONTENIDO DEL ARCHIVO: andryrabanales/ghost-api/ghost-api-f22d87f45fe763a51a610f276c88add1745486e1/routes/public.js]
 // Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/routes/public.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
