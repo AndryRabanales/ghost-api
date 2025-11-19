@@ -116,11 +116,26 @@ async function creatorsRoutes(fastify, opts) {
         const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
         if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
 
+        // 👇 AUTO-CORRECCIÓN: Si detectamos ID simulado, lo limpiamos antes de empezar
+        if (creator.stripeAccountId && creator.stripeAccountId.startsWith('sim_acct_')) {
+            fastify.log.warn(`Limpiando cuenta simulada para ${creator.id}`);
+            await prisma.creator.update({
+                where: { id: creator.id },
+                data: { stripeAccountId: null, stripeAccountOnboarded: false }
+            });
+            creator.stripeAccountId = null;
+            creator.stripeAccountOnboarded = false;
+        }
+
         // A. Si ya tiene cuenta y está "onboarded", generamos un link de LOGIN a su panel
-        // (Esto es útil si vuelven a dar clic en "Configurar", pero lo ideal es usar la ruta de dashboard abajo)
         if (creator.stripeAccountOnboarded && creator.stripeAccountId) {
-            const loginLink = await stripe.accounts.createLoginLink(creator.stripeAccountId);
-            return reply.send({ onboarding_url: loginLink.url }); // Reutilizamos el campo para redirigir
+            try {
+                const loginLink = await stripe.accounts.createLoginLink(creator.stripeAccountId);
+                return reply.send({ onboarding_url: loginLink.url });
+            } catch (e) {
+                 // Si falla (ej: cuenta borrada en stripe), permitimos re-onboarding
+                 fastify.log.warn("Fallo al crear login link en onboarding, reiniciando proceso...");
+            }
         }
 
         // B. Si no tiene cuenta, CREAMOS una cuenta Express
@@ -147,19 +162,16 @@ async function creatorsRoutes(fastify, opts) {
         // C. Generamos el enlace para que llene sus datos en Stripe
         const accountLink = await stripe.accountLinks.create({
             account: accountId,
-            // URL si el usuario cancela o falla el proceso
-            refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}`, 
-            // URL cuando el usuario completa el proceso con éxito
-            return_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?onboarding=success`, 
+            refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}`,
+            return_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?onboarding=success`,
             type: 'account_onboarding',
         });
 
-        // Devolvemos la URL para que el frontend redirija
         reply.send({ onboarding_url: accountLink.url });
 
       } catch (err) {
         fastify.log.error("❌ Error en Stripe Onboarding:", err);
-        reply.code(500).send({ error: "Error al conectar con Stripe." });
+        reply.code(500).send({ error: "Error al conectar con Stripe: " + err.message });
       }
     }
   );
@@ -176,13 +188,32 @@ async function creatorsRoutes(fastify, opts) {
             return reply.code(400).send({ error: "Cuenta no configurada. Por favor configura tus pagos primero." });
         }
 
+        // 👇 AUTO-CORRECCIÓN: Si es ID simulado, reseteamos y pedimos configurar de nuevo
+        if (creator.stripeAccountId.startsWith('sim_acct_')) {
+            await prisma.creator.update({
+                where: { id: creator.id },
+                data: { stripeAccountId: null, stripeAccountOnboarded: false }
+            });
+            return reply.code(400).send({ error: "Tu configuración anterior era simulada. Por favor, configura tus pagos reales ahora." });
+        }
+
         // Genera un link temporal de un solo uso para entrar al panel de Stripe Express
         const loginLink = await stripe.accounts.createLoginLink(creator.stripeAccountId);
         
         reply.send({ url: loginLink.url });
       } catch (err) {
         fastify.log.error("❌ Error generando link del dashboard Stripe:", err);
-        reply.code(500).send({ error: "No se pudo acceder al panel de pagos." });
+        
+        // Si el error es "No such account", significa que la cuenta se borró en Stripe o era inválida
+        if (err.code === 'account_invalid' || err.message.includes('No such account')) {
+             await prisma.creator.update({
+                where: { id: req.user.id },
+                data: { stripeAccountId: null, stripeAccountOnboarded: false }
+            });
+            return reply.code(400).send({ error: "Tu cuenta de pagos no se encontró. Por favor configúrala de nuevo." });
+        }
+
+        reply.code(500).send({ error: "No se pudo acceder al panel de pagos: " + err.message });
       }
     }
   );
