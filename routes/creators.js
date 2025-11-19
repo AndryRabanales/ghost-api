@@ -45,7 +45,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // 2. OBTENER PERFIL (ME)
+  // 2. OBTENER PERFIL (ME) - CON AUTO-VALIDACIÓN DE STRIPE
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -57,6 +57,25 @@ async function creatorsRoutes(fastify, opts) {
       if (!creator) {
         return reply.code(404).send({ error: "Creator no encontrado" });
       }
+
+      // 👇👇👇 BLOQUE NUEVO: AUTO-VALIDACIÓN DE STRIPE 👇👇👇
+      // Si tiene ID de cuenta pero la DB dice que NO está listo, preguntamos a Stripe.
+      if (creator.stripeAccountId && !creator.stripeAccountOnboarded) {
+          try {
+              const account = await stripe.accounts.retrieve(creator.stripeAccountId);
+              // details_submitted significa que completó el formulario de onboarding
+              if (account.details_submitted) {
+                  creator = await prisma.creator.update({
+                      where: { id: creator.id },
+                      data: { stripeAccountOnboarded: true }
+                  });
+                  fastify.log.info(`✅ (Auto-Fix) Cuenta Stripe marcada como lista para: ${creator.name}`);
+              }
+          } catch (stripeErr) {
+              fastify.log.warn(`⚠️ No se pudo verificar estado de Stripe: ${stripeErr.message}`);
+          }
+      }
+      // 👆👆👆 FIN DEL BLOQUE NUEVO 👆👆👆
 
       // Lógica de expiración de Premium (Se mantiene)
       if (creator.isPremium && creator.premiumExpiresAt && new Date() > new Date(creator.premiumExpiresAt)) {
