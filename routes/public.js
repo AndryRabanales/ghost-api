@@ -1,7 +1,11 @@
-// routes/public.js (VERSIÓN FINAL PARA COBRAR DINERO)
+// routes/public.js (CORREGIDO: Con validación de IA antes de pagar)
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+// 👇 1. IMPORTAMOS LAS HERRAMIENTAS DE SEGURIDAD 👇
+const { sanitize } = require("../utils/sanitize");
+const { analyzeMessage } = require("../utils/aiAnalyzer");
 
 async function publicRoutes(fastify, opts) {
 
@@ -36,10 +40,10 @@ async function publicRoutes(fastify, opts) {
     });
   });
 
-  // 2. CREAR SESIÓN DE PAGO REAL (STRIPE CHECKOUT)
+  // 2. CREAR SESIÓN DE PAGO (CON FILTRO DE IA)
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
     const { publicId } = req.params;
-    const { content, alias, fanEmail, tipAmount } = req.body; // tipAmount viene del frontend
+    const { content, alias, fanEmail, tipAmount } = req.body; 
 
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
@@ -49,7 +53,26 @@ async function publicRoutes(fastify, opts) {
         return reply.code(400).send({ error: "El monto mínimo es $10 MXN" });
     }
 
-    // Crear la sesión de Stripe
+    // 👇 2. LIMPIEZA Y VALIDACIÓN DE IA (BARRERA) 👇
+    const cleanContent = sanitize(content);
+    
+    try {
+        const safetyCheck = await analyzeMessage(cleanContent);
+        if (!safetyCheck.isSafe) {
+            // ⛔ SI ES TÓXICO, PARAMOS AQUÍ. NO SE CREA LA SESIÓN DE STRIPE.
+            return reply.code(400).send({ 
+                error: safetyCheck.reason || "Mensaje bloqueado por moderación (IA)." 
+            });
+        }
+    } catch (aiError) {
+        fastify.log.error(aiError);
+        // Si la IA falla, por seguridad podriamos dejar pasar o bloquear. 
+        // Para producción, mejor bloquear si no estamos seguros.
+        return reply.code(500).send({ error: "Error validando el contenido del mensaje." });
+    }
+    // 👆 FIN DE LA VALIDACIÓN 👆
+
+    // Crear la sesión de Stripe (Solo si pasó la IA)
     try {
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -69,16 +92,14 @@ async function publicRoutes(fastify, opts) {
         mode: 'payment',
         success_url: `${process.env.FRONTEND_URL}/r/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}`,
-        // Metadatos CRÍTICOS para el Webhook
+        
         metadata: {
           creatorId: creator.id,
           publicId: creator.publicId,
-          content: content.substring(0, 500), // Recortar por seguridad de Stripe
+          content: cleanContent.substring(0, 500), // ✅ Usamos el contenido limpio
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
         },
-        // Si el creador ya tiene cuenta conectada, dividimos el pago aquí (Opcional para MVP)
-        // payment_intent_data: { ... } 
       });
 
       reply.send({ url: session.url });
@@ -95,24 +116,17 @@ async function publicRoutes(fastify, opts) {
     if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
 
     try {
-      // Buscamos el chat creado por el Webhook usando el ID de sesión de Stripe
-      // (Necesitamos que el webhook guarde el stripeSessionId en el Chat o Message)
-      // TRUCO MVP: Buscamos el mensaje más reciente que coincida con la metadata de la sesión
-      
       const session = await stripe.checkout.sessions.retrieve(session_id);
       if(!session || session.payment_status !== 'paid') {
           return reply.code(404).send({ error: "Pago no completado o sesión inválida" });
       }
 
-      // Esperamos un poco a que el webhook procese (esto es un fix común)
+      // Esperamos un poco a que el webhook procese
       await new Promise(r => setTimeout(r, 1500));
 
-      // Buscamos el chat recién creado
-      // Nota: Esto asume que el webhook ya corrió. 
       const chat = await prisma.chat.findFirst({
         where: { 
             creatorId: session.metadata.creatorId,
-            // Podrías guardar el stripeSessionId en el chat para ser exacto
         },
         orderBy: { createdAt: 'desc' },
         include: { creator: true, messages: true }
