@@ -354,6 +354,65 @@ async function creatorsRoutes(fastify, opts) {
     }
   );
 
+// En routes/public.js
+
+  // 3. RECUPERACIÓN ROBUSTA TRAS EL PAGO (Fix "Mensaje Fantasma")
+  fastify.get("/public/chat-from-session", async (req, reply) => {
+    const { session_id } = req.query;
+    if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      if(!session || session.payment_status !== 'paid') {
+          return reply.code(404).send({ error: "Pago no completado o sesión inválida" });
+      }
+
+      const paymentIntentId = session.payment_intent; // ID único de este pago
+
+      // --- BUCLE DE ESPERA (POLLING) ---
+      // Intentamos encontrar el mensaje 5 veces, esperando 2 segundos entre cada intento.
+      // Esto da tiempo al Webhook de Stripe para llegar y guardar los datos.
+      let message = null;
+      
+      for (let i = 0; i < 5; i++) {
+          // Buscamos EXACTAMENTE el mensaje pagado usando el ID de Stripe
+          message = await prisma.chatMessage.findUnique({
+              where: { tipPaymentIntentId: paymentIntentId }, 
+              include: { chat: { include: { creator: true } } }
+          });
+
+          if (message) break; // ¡Lo encontramos! Salimos del bucle.
+          
+          // Si no está, esperamos 2 segundos antes de volver a buscar
+          await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      // ----------------------------------
+
+      if (!message) {
+           // Si tras 10 segundos sigue sin aparecer, es que el Webhook falló o va muy lento.
+           // No mostramos error 404 para no asustar, sino un aviso.
+           return reply.code(202).send({ 
+               status: 'processing', 
+               info: "Tu pago fue recibido, pero el mensaje se está procesando. Te llegará un email con el enlace en breve." 
+           });
+      }
+
+      reply.send({
+        chatId: message.chat.id,
+        anonToken: message.chat.anonToken,
+        creatorName: message.chat.creator.name,
+        preview: message.content,
+        ts: message.createdAt
+      });
+
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: err.message });
+    }
+  });
+
+
+
   // 8. LISTAR CHATS DEL DASHBOARD
   fastify.get(
     "/dashboard/:dashboardId/chats",
