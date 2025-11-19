@@ -44,23 +44,23 @@ const analyzeMessage = async (content, creatorPreference) => {
   const preference = creatorPreference || "Mensajes sobre temas de vida, coaching y consejos.";
   
   const prompt = `
-    Analiza el siguiente mensaje de un fan. Tu tarea es evaluarlo en dos puntos CRUCIALES.
-    
-    Punto 1: SEGURIDAD (SAFE/UNSAFE). Considera 'UNSAFE' CUALQUIER insinuación sexual, pregunta personal sospechosa, acoso sutil o amenaza.
-    
-    Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}".
-    Tu tarea es asignar un puntaje de relevancia del 1 al 10.
-    
-    ¡IMPORTANTE: No seas estricto con el puntaje! Sigue estas reglas:
-    -   Si el mensaje es respetuoso pero NO está relacionado con el tema (ej: "Hola", "¿Cómo estás?", "Me encanta tu trabajo"), asígnale un puntaje base neutral de **5**.
-    -   Si el mensaje SÍ está relacionado con el tema ("${preference}"), dale un puntaje más alto (**6-10**) según qué tan relevante sea.
-    -   Si el mensaje es spam obvio, texto sin sentido, o NO tiene nada que ver con lo que el creador pide (ej: "asdasd", "compra esto", o hablar de fútbol a un canal de cocina), dale un puntaje bajo (**1-3**).
-    
-    Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
-    Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
-    
-    Mensaje del Fan: "${content}"
-  `;
+  Analiza el siguiente mensaje de un fan. Tu tarea es evaluarlo en dos puntos CRUCIALES.
+  
+  Punto 1: SEGURIDAD (SAFE/UNSAFE). Considera 'UNSAFE' CUALQUIER insinuación sexual, pregunta personal sospechosa, acoso sutil o amenaza.
+  
+  Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}".
+  Tu tarea es asignar un puntaje de relevancia del 1 al 10.
+  
+  🚨 REGLAS ESTRICTAS DE PUNTAJE:
+  -   **Puntaje 1-3 (RECHAZAR):** Asigna esto si el mensaje es spam, texto sin sentido, O SI ES GENÉRICO y no aporta nada al tema (ej: "Hola", "¿Cómo estás?", "Saludos", "Me gustas"). Aunque sea respetuoso, si no habla del tema "${preference}", es irrelevante.
+  -   **Puntaje 4-5 (DUDOSO):** Mensajes que tocan el tema muy superficialmente.
+  -   **Puntaje 6-10 (APROBAR):** El mensaje habla CLARAMENTE sobre "${preference}".
+  
+  Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
+  Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
+  
+  Mensaje del Fan: "${content}"
+`;
 
   try {
     const modelToUse = "gpt-3.5-turbo-0125"; 
