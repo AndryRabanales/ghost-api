@@ -13,10 +13,8 @@ const chatsRoutes = require("./routes/chats");
 const messagesRoutes = require("./routes/messages");
 const publicRoutes = require("./routes/public");
 const dashboardChats = require("./routes/dashboardChats");
-const premiumPayments = require("./routes/premiumPayments"); // (Suscripción Premium)
 
 // --- 👇 1. REEMPLAZAR WEBHOOK ---
-// const premiumWebhook = require("./routes/premiumWebhook"); // ❌ ELIMINAR MERCADO PAGO
 const stripeWebhook = require("./routes/stripeWebhook"); // ✅ AÑADIR STRIPE
 
 const adminAuthPlugin = require("./plugins/adminAuth");
