@@ -14,11 +14,11 @@ const LOCAL_BAD_WORDS = [
 ];
 
 /**
- * (FUNCIÓN EXISTENTE)
+ * (FUNCIÓN EXISTENTE - CORREGIDA)
  * La estrategia de 3 etapas para analizar mensajes ANÓNIMOS.
  * Etapa 1: Filtro local de palabras (Gratis)
  * Etapa 2: Modelo de Moderación de OpenAI (Gratis)
- * Etapa 3: Modelo de Contexto GPT-4o-mini (De Pago)
+ * Etapa 3: Modelo de Contexto GPT-4o-mini (De Pago) - AHORA BLOQUEA POR TEMA
  */
 const analyzeMessage = async (content, creatorPreference) => {
   const lowerCaseContent = content.toLowerCase();
@@ -55,7 +55,7 @@ const analyzeMessage = async (content, creatorPreference) => {
     ¡IMPORTANTE: No seas estricto con el puntaje! Sigue estas reglas:
     -   Si el mensaje es respetuoso pero NO está relacionado con el tema (ej: "Hola", "¿Cómo estás?", "Me encanta tu trabajo"), asígnale un puntaje base neutral de **5**.
     -   Si el mensaje SÍ está relacionado con el tema ("${preference}"), dale un puntaje más alto (**6-10**) según qué tan relevante sea.
-    -   Si el mensaje es spam obvio o texto sin sentido (ej: "asdasd", "compra esto"), dale un puntaje bajo (**1-3**).
+    -   Si el mensaje es spam obvio o texto sin sentido (ej: "asdasd", "compra esto") o totalmente fuera de contexto, dale un puntaje bajo (**1-3**).
     
     Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
     Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
@@ -64,7 +64,7 @@ const analyzeMessage = async (content, creatorPreference) => {
   `;
 
   try {
-    const modelToUse = "gpt-3.5-turbo-0125"; // Usamos el 3.5-turbo como mencionaste
+    const modelToUse = "gpt-3.5-turbo-0125"; 
     
     const response = await openai.chat.completions.create({
       model: modelToUse,
@@ -87,32 +87,33 @@ const analyzeMessage = async (content, creatorPreference) => {
     }
 
     // --- Lógica de Relevancia (E4 - El Valor) ---
+    // 👇 AQUÍ ESTÁ LA CORRECCIÓN: Bloquear si el score es bajo 👇
     const relevanceScore = parseInt(result.relevance_score, 10);
-    if (isNaN(relevanceScore)) throw new Error("IA no devolvió score de relevancia");
+    
+    if (!isNaN(relevanceScore) && relevanceScore <= 3) {
+        console.log(`[AI Moderation - ETAPA 3] ⛔ BLOQUEADO por Irrelevancia (Score: ${relevanceScore}). Tema: ${preference}`);
+        return { 
+            isSafe: false, 
+            reason: `Tu mensaje no tiene que ver con el tema del creador: "${preference}".` 
+        };
+    }
 
-    console.log(`[AI Moderation - ETAPA 3] Mensaje APROBADO. Relevancia: ${relevanceScore}`);
+    console.log(`[AI Moderation - ETAPA 3] ✅ Mensaje APROBADO. Relevancia: ${relevanceScore}`);
     
     return { isSafe: true, relevance: relevanceScore };
 
   } catch (error) {
-    console.error(`ERROR en AI Analyzer (Etapa 3 - ${modelToUse}):`, error);
-    // Si la IA de pago falla, lo dejamos pasar por ahora.
-    return { isSafe: true, relevance: 5 }; // Score neutral por defecto (5)
+    console.error(`ERROR en AI Analyzer (Etapa 3 - fallback):`, error);
+    // Si la IA de pago falla, lo dejamos pasar con score neutral por defecto.
+    return { isSafe: true, relevance: 5 }; 
   }
 };
 
 
-// --- 👇 FUNCIÓN MODIFICADA (AHORA RECIBE LA PREGUNTA) 👇 ---
-
+// --- 👇 FUNCIÓN AUDITORA (CREADOR) 👇 ---
 /**
- * (FUNCIÓN AUDITORA)
  * Analiza la RESPUESTA de un creador para asegurar que cumple con su
  * contrato Y que es relevante para la pregunta del anónimo.
- *
- * @param {string} responseContent La respuesta que escribió el creador.
- * @param {string} premiumContract La promesa/contrato del creador.
- * @param {string} lastAnonQuestion La última pregunta que hizo el anónimo.
- * @returns {Promise<{success: boolean, reason: string}>}
  */
 async function analyzeCreatorResponse(responseContent, premiumContract, lastAnonQuestion) {
   
@@ -173,7 +174,6 @@ async function analyzeCreatorResponse(responseContent, premiumContract, lastAnon
 }
 
 
-// --- 👇 EXPORTACIÓN ACTUALIZADA 👇 ---
 module.exports = { 
   analyzeMessage,
   analyzeCreatorResponse
