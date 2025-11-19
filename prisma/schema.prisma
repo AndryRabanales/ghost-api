@@ -1,150 +1,81 @@
-// ------------------------------------------------------------------
-// --- CONFIGURACIÓN DE CONEXIÓN Y GENERACIÓN ---
-// ------------------------------------------------------------------
+// andryrabanales/ghost-api/ghost-api-19b1772a30b344a83537d80a3b03667a162a7ad4/prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = ["driverAdapters"] 
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "postgresql"
-  // ¡IMPORTANTE! La URL debe ser la nueva y correcta (sin errores) de Railway
-  url      = env("DATABASE_URL") 
+  url      = env("DATABASE_URL")
 }
 
-// ------------------------------------------------------------------
-// --- MODELOS DE DATOS ---
-// ------------------------------------------------------------------
-
-/// ======================
-///     CREATOR (DASHBOARD)
-///     ======================
+// --- MODELO CREADOR (Tu Cliente) ---
 model Creator {
-  id                     String    @id
+  id                     String    @id // Dashboard ID
   publicId               String    @unique
   name                   String?
-  isPremium              Boolean   @default(false)
-
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @default(now()) @updatedAt
-  lastUpdated            DateTime  @default(now())
-
   email                  String?   @unique
   password               String?
-  lastActive             DateTime? @default(now())
-
-  // --- 👇 CAMPOS DE SUSCRIPCIÓN (PILAR 3) ---
-  premiumExpiresAt       DateTime?
-  stripeCustomerId       String?   @unique
-
-  stripeSubscriptionStatus String?
-
-  // --- 👇 CAMPOS DE PROPINAS Y PAGO (PILAR 2, P1, P5) ---
+  createdAt              DateTime  @default(now())
+  
+  // Stripe Connect (CRÍTICO PARA COBRAR)
   stripeAccountId        String?   @unique
   stripeAccountOnboarded Boolean   @default(false)
 
-  // --- 👇 CAMPOS DE FUNCIONES PRO / ESCCASEZ (PILAR 2: S1, S3) ---
-  tipOnlyMode            Boolean   @default(false)
+  // Configuración de Negocio
+  baseTipAmountCents     Int       @default(10000) // $100.00 MXN
+  premiumContract        String?   @default("Respuesta garantizada.")
+  topicPreference        String?   @default("Cualquier tema.")
 
-  // --- CAMPO NUEVO ---
-  // Precio base que el creador define (en centavos, ej: 10000 = $100.00 MXN)
-  // Lo ponemos en centavos para evitar decimales.
-  baseTipAmountCents     Int       @default(10000)
-  
-  // S1: Límite de mensajes Premium
-  dailyMsgLimit          Int       @default(30) 
-  msgCountToday          Int       @default(0)  
-  msgCountLastReset      DateTime  @default(now()) 
+  // Métricas Simples
+  msgCountToday          Int       @default(0)
+  dailyMsgLimit          Int       @default(30) // Límite de escasez artificial
+  msgCountLastReset      DateTime  @default(now())
+  lastActive             DateTime?
 
-  // S3: Contrato de Contenido Explicito
-  premiumContract        String?   @default("Respuesta de alta calidad.") // <--- CAMPO AÑADIDO (S3)
-  topicPreference        String?   @default("Cualquier mensaje respetuoso.") // <--- AÑADIDO (E4)
-  // --- Relaciones ---
+  // Relaciones
   chats                  Chat[]
-  messages               Message[]
-  links                  ProductLink[]
+  links                  ProductLink[] // Si usas links extra
 }
 
-/// =UAL=====================
-///     MENSAJES (NGL estilo)
-///     ======================
-model Message {
-  id          String     @id @default(uuid())
-  content     String
-  createdAt   DateTime   @default(now())
-  alias       String?
-  creatorId   String
-  seen        Boolean    @default(false)
-  replyToken  String?    @unique
-  creator     Creator    @relation(fields: [creatorId], references: [id])
-  responses   Response[]
-}
-
-model Response {
-  id        String   @id @default(uuid())
-  messageId String
-  content   String
-  createdAt DateTime @default(now())
-  message   Message  @relation(fields: [messageId], references: [id])
-}
-
-/// ======================
-///     CHATS BIDIRECCIONALES
-///     ======================
+// --- MODELO CHAT (La Transacción) ---
 model Chat {
   id          String        @id @default(uuid())
   creatorId   String
-  anonToken   String
-  createdAt   DateTime      @default(now())
+  anonToken   String        // Token para que el fan vea su chat
   anonAlias   String?
+  createdAt   DateTime      @default(now())
   isOpened    Boolean       @default(false)
   anonReplied Boolean       @default(false)
+
   creator     Creator       @relation(fields: [creatorId], references: [id])
   messages    ChatMessage[]
 }
 
+// --- MODELO MENSAJE (El Producto) ---
 model ChatMessage {
   id                 String   @id @default(uuid())
   chatId             String
-  from               String
+  from               String   // "creator" o "anon"
   content            String
   createdAt          DateTime @default(now())
   seen               Boolean  @default(false)
   alias              String?
-  chat               Chat     @relation(fields: [chatId], references: [id])
-
-  // --- 👇 CAMPOS PARA PILAR 2 (PROPINAS) ---
+  
+  // --- DINERO ---
   tipAmount          Float?
   tipPaymentIntentId String?  @unique
-  tipStatus          String?
-
-  // --- CAMPO NUEVO ---
-  // El "Puntaje de Prioridad" calculado con tu fórmula
-  priorityScore      Float?
-  relevanceScore     Int? // <--- AÑADIDO (E4)
+  tipStatus          String?  // 'PENDING' -> 'FULFILLED'
   
+  // --- IA (Invisible para el usuario) ---
+  priorityScore      Float?
+  relevanceScore     Int?
+
+  chat               Chat     @relation(fields: [chatId], references: [id])
 }
 
-model Payment {
-  id                  String    @id @default(cuid())
-  provider            String
-  providerPaymentId   String?   @unique
-  creatorId           String
-  amount              Float
-  currency            String
-  status              String
-  idempotencyKey      String    @unique
-  raw                 Json?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-
-  @@index([creatorId])
-}
-
-/// ======================
-///     CATÁLOGO PRO (PILAR 3)
-///     ======================
+// --- MODELO AUXILIAR (Opcional, para links extra en perfil) ---
 model ProductLink {
   id        String   @id @default(uuid())
   creatorId String
