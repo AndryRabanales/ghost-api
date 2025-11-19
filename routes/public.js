@@ -57,17 +57,18 @@ async function publicRoutes(fastify, opts) {
     const cleanContent = sanitize(content);
     
     try {
-        const safetyCheck = await analyzeMessage(cleanContent);
+        // Pasamos el topicPreference del creador para que la IA tenga contexto
+        const safetyCheck = await analyzeMessage(cleanContent, creator.topicPreference);
+        
         if (!safetyCheck.isSafe) {
             // ⛔ SI ES TÓXICO, PARAMOS AQUÍ. NO SE CREA LA SESIÓN DE STRIPE.
             return reply.code(400).send({ 
-                error: safetyCheck.reason || "Mensaje bloqueado por moderación (IA)." 
+                error: safetyCheck.reason || "Mensaje bloqueado por moderación (IA). Por favor, sé respetuoso." 
             });
         }
     } catch (aiError) {
         fastify.log.error(aiError);
-        // Si la IA falla, por seguridad podriamos dejar pasar o bloquear. 
-        // Para producción, mejor bloquear si no estamos seguros.
+        // Si la IA falla, por seguridad podríamos bloquear. 
         return reply.code(500).send({ error: "Error validando el contenido del mensaje." });
     }
     // 👆 FIN DE LA VALIDACIÓN 👆
@@ -96,7 +97,7 @@ async function publicRoutes(fastify, opts) {
         metadata: {
           creatorId: creator.id,
           publicId: creator.publicId,
-          content: cleanContent.substring(0, 500), // ✅ Usamos el contenido limpio
+          content: cleanContent.substring(0, 500), // ✅ Usamos el contenido limpio y seguro
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
         },
