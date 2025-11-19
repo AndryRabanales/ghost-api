@@ -25,11 +25,11 @@ model Creator {
   publicId               String    @unique
   name                   String?
   isPremium              Boolean   @default(false)
-  lives                  Int       @default(6)
+
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @default(now()) @updatedAt
   lastUpdated            DateTime  @default(now())
-  maxLives               Int       @default(6)
+
   email                  String?   @unique
   password               String?
   lastActive             DateTime? @default(now())
@@ -37,7 +37,7 @@ model Creator {
   // --- 👇 CAMPOS DE SUSCRIPCIÓN (PILAR 3) ---
   premiumExpiresAt       DateTime?
   stripeCustomerId       String?   @unique
-  stripeSubscriptionId   String?   @unique
+
   stripeSubscriptionStatus String?
 
   // --- 👇 CAMPOS DE PROPINAS Y PAGO (PILAR 2, P1, P5) ---
