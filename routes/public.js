@@ -1,4 +1,4 @@
-// routes/public.js (CORREGIDO: Con validación de IA antes de pagar)
+// routes/public.js (CORREGIDO: Con validación de IA + Stripe Connect Split)
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -40,7 +40,7 @@ async function publicRoutes(fastify, opts) {
     });
   });
 
-  // 2. CREAR SESIÓN DE PAGO (CON FILTRO DE IA)
+  // 2. CREAR SESIÓN DE PAGO (CON FILTRO DE IA + STRIPE CONNECT)
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
     const { publicId } = req.params;
     const { content, alias, fanEmail, tipAmount } = req.body; 
@@ -61,21 +61,21 @@ async function publicRoutes(fastify, opts) {
         const safetyCheck = await analyzeMessage(cleanContent, creator.topicPreference);
         
         if (!safetyCheck.isSafe) {
-            // ⛔ SI ES TÓXICO, PARAMOS AQUÍ. NO SE CREA LA SESIÓN DE STRIPE.
+            // ⛔ SI ES TÓXICO O IRRELEVANTE, PARAMOS AQUÍ.
             return reply.code(400).send({ 
-                error: safetyCheck.reason || "Mensaje bloqueado por moderación (IA). Por favor, sé respetuoso." 
+                error: safetyCheck.reason || "Mensaje bloqueado por moderación (IA)." 
             });
         }
     } catch (aiError) {
         fastify.log.error(aiError);
-        // Si la IA falla, por seguridad podríamos bloquear. 
         return reply.code(500).send({ error: "Error validando el contenido del mensaje." });
     }
     // 👆 FIN DE LA VALIDACIÓN 👆
 
-    // Crear la sesión de Stripe (Solo si pasó la IA)
-    try {
-      const session = await stripe.checkout.sessions.create({
+    // Configuración base de la sesión de Stripe
+    const amountCents = Math.round(tipAmount * 100);
+    
+    const sessionConfig = {
         payment_method_types: ['card'],
         line_items: [
           {
@@ -85,7 +85,7 @@ async function publicRoutes(fastify, opts) {
                 name: `Mensaje para ${creator.name}`,
                 description: 'Envío de mensaje anónimo prioritario',
               },
-              unit_amount: Math.round(tipAmount * 100), // Convertir a centavos
+              unit_amount: amountCents,
             },
             quantity: 1,
           },
@@ -97,12 +97,29 @@ async function publicRoutes(fastify, opts) {
         metadata: {
           creatorId: creator.id,
           publicId: creator.publicId,
-          content: cleanContent.substring(0, 500), // ✅ Usamos el contenido limpio y seguro
+          content: cleanContent.substring(0, 500),
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
         },
-      });
+    };
 
+    // 👇 STRIPE CONNECT: DIVISIÓN DE PAGOS 👇
+    // Si el creador ya conectó su cuenta, dividimos el pago.
+    if (creator.stripeAccountId) {
+        const platformFeePercent = 0.20; // Tu comisión (20%)
+        const applicationFee = Math.round(amountCents * platformFeePercent);
+
+        sessionConfig.payment_intent_data = {
+            application_fee_amount: applicationFee, // Lo que tú ganas
+            transfer_data: {
+                destination: creator.stripeAccountId, // A dónde va el resto (Creador)
+            },
+        };
+    }
+    // 👆 FIN DE LA LÓGICA DE CONNECT 👆
+
+    try {
+      const session = await stripe.checkout.sessions.create(sessionConfig);
       reply.send({ url: session.url });
 
     } catch (error) {
