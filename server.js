@@ -75,7 +75,6 @@ fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
 fastify.register(publicRoutes);
 fastify.register(dashboardChats);
-fastify.register(premiumPayments); // (Suscripción Premium, si aún la usas)
 
 // --- 👇 3. REGISTRAR EL WEBHOOK CORRECTO ---
 // fastify.register(premiumWebhook); // ❌ ELIMINAR MERCADO PAGO
