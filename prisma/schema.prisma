@@ -25,7 +25,7 @@ model Creator {
 
   // Configuración de Negocio
   baseTipAmountCents     Int       @default(10000) // $100.00 MXN
-  premiumContract        String?   @default("Respuesta garantizada.")
+  // ❌ ELIMINADO: premiumContract
   topicPreference        String?   @default("Cualquier tema.")
 
   // Métricas Simples
