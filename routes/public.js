@@ -13,7 +13,6 @@ async function publicRoutes(fastify, opts) {
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
 
-    // Calcular escasez
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const msgCountToday = await prisma.chatMessage.count({
@@ -37,7 +36,7 @@ async function publicRoutes(fastify, opts) {
     });
   });
 
-  // 2. CREAR SESIÓN DE PAGO (Checkout)
+  // 2. CREAR SESIÓN DE PAGO
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
     const { publicId } = req.params;
     const { content, alias, fanEmail, tipAmount } = req.body; 
@@ -45,22 +44,20 @@ async function publicRoutes(fastify, opts) {
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
 
+    // Validación de precio mínimo $100 MXN
     if (!tipAmount || tipAmount < 100) {
         return reply.code(400).send({ error: "El monto mínimo es $100 MXN" });
     }
 
     const cleanContent = sanitize(content);
     
-    // Validación IA
     try {
         const safetyCheck = await analyzeMessage(cleanContent, creator.topicPreference);
         if (!safetyCheck.isSafe) {
-            return reply.code(400).send({ 
-                error: safetyCheck.reason || "Mensaje bloqueado por moderación." 
-            });
+            return reply.code(400).send({ error: safetyCheck.reason || "Mensaje bloqueado." });
         }
     } catch (aiError) {
-        fastify.log.error(aiError); // Fallo silencioso en producción para no perder venta
+        fastify.log.error(aiError);
     }
 
     const amountCents = Math.round(tipAmount * 100);
@@ -87,13 +84,11 @@ async function publicRoutes(fastify, opts) {
           content: cleanContent.substring(0, 500),
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
-          // Pasamos datos extra para el webhook
-          priorityScoreBase: String(tipAmount), // Usamos el monto como base de prioridad
+          priorityScoreBase: String(tipAmount),
           topicPreference: creator.topicPreference
         },
     };
 
-    // Stripe Connect (Split de pagos)
     if (creator.stripeAccountId && creator.stripeAccountOnboarded) {
         const platformFeePercent = 0.20; 
         const applicationFee = Math.round(amountCents * platformFeePercent);
@@ -112,7 +107,7 @@ async function publicRoutes(fastify, opts) {
     }
   });
 
-  // 3. RECUPERAR CHAT TRAS PAGO (CON POLLING FIX) ✅✅✅
+  // 3. RECUPERAR CHAT (FIX DE POLLING APLICADO) ✅
   fastify.get("/public/chat-from-session", async (req, reply) => {
     const { session_id } = req.query;
     if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
@@ -126,21 +121,22 @@ async function publicRoutes(fastify, opts) {
       const paymentIntentId = session.payment_intent; 
 
       // --- BUCLE DE ESPERA (POLLING) ---
+      // Busca el mensaje específico por su ID de pago, no "el último"
       let message = null;
-      for (let i = 0; i < 5; i++) { // 5 intentos
+      for (let i = 0; i < 10; i++) { // 10 intentos de 1s = 10 segundos máximo
           message = await prisma.chatMessage.findUnique({
               where: { tipPaymentIntentId: paymentIntentId }, 
               include: { chat: { include: { creator: true } } }
           });
-          if (message) break; // ¡Encontrado!
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2s
+          if (message) break; // ¡Lo encontramos!
+          await new Promise(resolve => setTimeout(resolve, 1000)); 
       }
       // ----------------------------------
 
       if (!message) {
            return reply.code(202).send({ 
                status: 'processing', 
-               info: "Procesando mensaje. Recarga en unos segundos." 
+               info: "Pago recibido. Tu mensaje está siendo procesado y aparecerá en breve." 
            });
       }
 
