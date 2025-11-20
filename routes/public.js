@@ -31,7 +31,7 @@ async function publicRoutes(fastify, opts) {
       creatorName: creator.name,
       baseTipAmountCents: creator.baseTipAmountCents,
       topicPreference: creator.topicPreference,
-      premiumContract: creator.premiumContract,
+      // ❌ ELIMINADO: premiumContract
       escasezData: { msgCountToday, dailyMsgLimit: DAILY_LIMIT },
       isFull
     });
@@ -95,9 +95,8 @@ async function publicRoutes(fastify, opts) {
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
           
-          // 🔥🔥🔥 AQUÍ ESTABA EL ERROR: FALTABA ESTA LÍNEA 🔥🔥🔥
+          // 🔥 CORRECCIÓN CRÍTICA (Mantenida)
           tipAmount: String(tipAmount), 
-          // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
           
           priorityScoreBase: String(tipAmount),
           topicPreference: creator.topicPreference,
