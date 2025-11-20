@@ -17,7 +17,7 @@ async function chatsRoutes(fastify, opts) {
       // --- BLOQUE DE MODERACIÓN DE IA (CORREGIDO) ---
       if (!originalContent || originalContent.trim().length < 1) {
         // ¡CORREGIDO! Usando 'reply.code().send()'
-        return reply.code(400).send({ error: "El mensaje está vacío." });
+        return reply.code(400).send({ error: "El mensaje está vacío" });
       }
       
       try {
