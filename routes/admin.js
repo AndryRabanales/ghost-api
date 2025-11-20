@@ -1,108 +1,115 @@
 // routes/admin.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-// --- 👇 1. IMPORTAR STRIPE 👇 ---
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function adminRoutes(fastify, opts) {
   
-  fastify.post(
-    '/admin/check-refunds',
-    // SOLO accesible con la API Key de Admin
-    { preHandler: [fastify.adminAuthenticate] }, 
-    async (req, reply) => {
-
-      // --- 👇 2. AJUSTE DE TIEMPO A 2 MINUTOS PARA PRUEBA 👇 ---
-      // const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 72 horas (PRODUCCIÓN)
-      const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 2 MINUTOS (PARA PRUEBA)
-      // --- 👆 FIN DEL AJUSTE 👆 ---
-
+  // A. CRON DE REEMBOLSOS (Lógica existente de 72h)
+  fastify.post('/admin/check-refunds', { preHandler: [fastify.adminAuthenticate] }, async (req, reply) => {
+      const timeLimitAgo = new Date(Date.now() - (72 * 60 * 60 * 1000)); // 72 horas
       try {
         const outdatedTips = await prisma.chatMessage.findMany({
           where: {
             tipStatus: 'PENDING',
-            createdAt: {
-              lt: timeLimitAgo, // Creado antes del límite
-            },
-            tipAmount: {
-                gt: 0 
-            }
+            createdAt: { lt: timeLimitAgo },
+            tipAmount: { gt: 0 }
           },
-          // --- 👇 3. PEDIR EL ID DE PAGO 👇 ---
-          select: {
-            id: true,
-            tipPaymentIntentId: true // <--- ¡Crítico para el reembolso!
-          }
+          select: { id: true, tipPaymentIntentId: true }
         });
         
-        if (outdatedTips.length === 0) {
-            fastify.log.info("Cron: No se encontraron pagos expirados para reembolsar.");
-            return reply.send({ success: true, count: 0, message: "No se encontraron pagos pendientes de reembolso." });
-        }
+        if (outdatedTips.length === 0) return reply.send({ success: true, count: 0, message: "Nada que reembolsar." });
 
-        // --- 👇 4. LÓGICA DE REEMBOLSO EN BUCLE 👇 ---
-        
         let refundedCount = 0;
-        const successfulRefundIds = []; // IDs de *mensajes* (UUIDs)
-
-        fastify.log.warn(`Cron: Iniciando reembolsos para ${outdatedTips.length} pago(s).`);
+        const successfulRefundIds = [];
 
         for (const tip of outdatedTips) {
-          if (!tip.tipPaymentIntentId) {
-            fastify.log.error(`Pago ${tip.id} no tiene payment_intent_id. Omitiendo reembolso.`);
-            continue;
-          }
-
+          if (!tip.tipPaymentIntentId) continue;
           try {
-            // 1. Llamar a Stripe para ejecutar el reembolso
-            await stripe.refunds.create({
-              payment_intent: tip.tipPaymentIntentId,
-            });
-
-            // 2. Si tiene éxito, añadirlo a la lista para actualizar DB
+            await stripe.refunds.create({ payment_intent: tip.tipPaymentIntentId });
             successfulRefundIds.push(tip.id);
             refundedCount++;
-            fastify.log.info(`Cron: Reembolso exitoso para ${tip.tipPaymentIntentId}`);
-          
           } catch (refundError) {
-            fastify.log.error(refundError, `Cron: Falló el reembolso para ${tip.tipPaymentIntentId}.`);
-            // Si el error es "ya ha sido reembolsado", lo marcamos como NOT_FULFILLED
-            if (refundError.code === 'charge_already_refunded') {
-              successfulRefundIds.push(tip.id);
-            }
-            // Otros errores (ej. "payment_intent_unknown") se ignoran y se reintentarán la próxima vez
+            if (refundError.code === 'charge_already_refunded') successfulRefundIds.push(tip.id);
           }
         }
 
-        if (successfulRefundIds.length === 0) {
-            fastify.log.warn("Cron: No se completó ningún reembolso en este ciclo.");
-            return reply.send({ success: true, count: 0, message: "No se pudo completar ningún reembolso en este ciclo." });
+        if (successfulRefundIds.length > 0) {
+            await prisma.chatMessage.updateMany({
+                where: { id: { in: successfulRefundIds } },
+                data: { tipStatus: 'NOT_FULFILLED' }
+            });
         }
-
-        // 3. Actualizar la base de datos SÓLO para los reembolsos exitosos
-        const updateResult = await prisma.chatMessage.updateMany({
-            where: {
-                id: { in: successfulRefundIds }
-            },
-            data: {
-                tipStatus: 'NOT_FULFILLED', // <--- Marcar como No Cumplido
-            }
-        });
         
-        fastify.log.warn(`Cron: ✅ ${updateResult.count} pago(s) marcado(s) como NOT_FULFILLED (Reembolsado).`);
-        
-        reply.send({ 
-            success: true, 
-            count: updateResult.count, 
-            message: `Reembolso procesado para ${updateResult.count} pago(s).`
-        });
+        reply.send({ success: true, count: successfulRefundIds.length, message: "Reembolsos procesados." });
 
       } catch (err) {
-        fastify.log.error(err, "Error al ejecutar el cron de reembolsos");
-        reply.code(500).send({ error: 'Error interno en el cron job' });
+        fastify.log.error(err);
+        reply.code(500).send({ error: 'Error en cron reembolsos' });
       }
     }
   );
+
+  // B. CRON DE REINTENTO DE PAGOS (NUEVO - PARA PAGOS EN COLA)
+  fastify.post('/admin/retry-payments', { preHandler: [fastify.adminAuthenticate] }, async (req, reply) => {
+      try {
+          // Buscar pagos que quedaron esperando fondos
+          const queue = await prisma.chatMessage.findMany({
+            where: { tipStatus: 'PROCESSING' },
+            include: { chat: { include: { creator: true } } }
+          });
+
+          if (queue.length === 0) return reply.send({ message: "La cola de pagos está vacía." });
+
+          let processed = 0;
+          let stillPending = 0;
+
+          for (const msg of queue) {
+              try {
+                  if (!msg.tipPaymentIntentId || !msg.chat.creator.stripeAccountId) continue;
+
+                  // Recuperar info fresca
+                  const pi = await stripe.paymentIntents.retrieve(msg.tipPaymentIntentId);
+                  
+                  const creatorShare = (msg.tipAmount || 0) * 0.80; 
+                  const amountCents = Math.round(creatorShare * 100);
+
+                  // Reintentar transferencia
+                  await stripe.transfers.create({
+                      amount: amountCents,
+                      currency: "mxn",
+                      destination: msg.chat.creator.stripeAccountId,
+                      transfer_group: pi.transfer_group,
+                      description: `Respuesta GhostMessage (Reintento)`,
+                  });
+
+                  // Si funciona, actualizamos a FULFILLED
+                  await prisma.chatMessage.update({
+                      where: { id: msg.id },
+                      data: { tipStatus: 'FULFILLED' }
+                  });
+                  processed++;
+
+              } catch (err) {
+                  if (err.code === 'balance_insufficient') {
+                      stillPending++; // Sigue esperando al banco
+                  } else {
+                      console.error(`Error crítico en reintento ${msg.id}:`, err.message);
+                  }
+              }
+          }
+
+          reply.send({ 
+              success: true, 
+              processed, 
+              still_waiting_funds: stillPending,
+              message: `Procesados: ${processed}. Pendientes de fondos: ${stillPending}.` 
+          });
+      } catch (err) {
+          fastify.log.error(err);
+          reply.code(500).send({ error: 'Error en retry-payments' });
+      }
+  });
 }
 
 module.exports = adminRoutes;
