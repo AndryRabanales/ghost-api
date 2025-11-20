@@ -166,7 +166,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   );
 
-  // 4. STRIPE DASHBOARD (Ver Billetera)
+  // 4. STRIPE DASHBOARD (Ver Billetera) - CON RESETEO NUCLEAR
   fastify.post(
     "/creators/stripe-dashboard",
     { preHandler: [fastify.authenticate] },
@@ -180,12 +180,15 @@ async function creatorsRoutes(fastify, opts) {
         reply.send({ url: loginLink.url });
 
       } catch (err) {
-        // Auto-reparación si la cuenta no existe
-        if (err.code === 'account_invalid' || err.message.includes('No such account')) {
-             await prisma.creator.update({ where: { id: req.user.id }, data: { stripeAccountId: null, stripeAccountOnboarded: false }});
-             return reply.code(400).send({ error: "Tu cuenta necesita reconectarse." });
-        }
-        reply.code(500).send({ error: "Error abriendo panel: " + err.message });
+        // ⚠️ RESETEO NUCLEAR: Si falla CUALQUIER COSA al abrir la billetera, reseteamos.
+        fastify.log.warn(`Error crítico en Stripe Dashboard. Reseteando cuenta ${req.user.id}. Error: ${err.message}`);
+        
+        await prisma.creator.update({ 
+            where: { id: req.user.id }, 
+            data: { stripeAccountId: null, stripeAccountOnboarded: false }
+        });
+        
+        return reply.code(400).send({ error: "Conexión inestable. Por favor reconecta tu cuenta." });
       }
     }
   );
@@ -241,7 +244,7 @@ async function creatorsRoutes(fastify, opts) {
           previewMessage: chat.messages[0] || null
         }));
         
-        // Ordenar: Prioridad primero ($$$), luego fecha
+        // Ordenar por Prioridad ($$$) y luego Fecha
         formatted.sort((a, b) => {
             const scoreA = a.previewMessage?.priorityScore || 0;
             const scoreB = b.previewMessage?.priorityScore || 0;
