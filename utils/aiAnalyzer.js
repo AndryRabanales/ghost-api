@@ -1,6 +1,6 @@
 const { OpenAI } = require("openai");
 
-// 1. Carga la clave API de OpenAI desde el archivo .env
+// 1. Carga la clave API de OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -17,49 +17,45 @@ const LOCAL_BAD_WORDS = [
  * La estrategia de 3 etapas para analizar mensajes ANÓNIMOS.
  * Etapa 1: Filtro local de palabras (Gratis)
  * Etapa 2: Modelo de Moderación de OpenAI (Gratis)
- * Etapa 3: Modelo de Contexto GPT-3.5 (De Pago) - AHORA BLOQUEA POR TEMA
+ * Etapa 3: Análisis de Relevancia (SOLO INFORMATIVO, YA NO BLOQUEA)
  */
 const analyzeMessage = async (content, creatorPreference) => {
   const lowerCaseContent = content.toLowerCase();
 
-  // --- ETAPA 1 y 2 (Sin cambios) ---
+  // --- ETAPA 1 y 2 (Seguridad Básica - SE MANTIENE) ---
   for (const word of LOCAL_BAD_WORDS) {
     if (lowerCaseContent.includes(word)) {
-      console.log(`[AI Moderation - ETAPA 1] Mensaje BLOQUEADO (Palabra clave): ${word}`);
-      return { isSafe: false, reason: 'Tu mensaje fue bloqueado por moderación.' };
+      console.log(`[AI Moderation] Bloqueado por palabra clave: ${word}`);
+      return { isSafe: false, reason: 'Tu mensaje contiene lenguaje ofensivo prohibido.' };
     }
   }
 
   try {
     const modResponse = await openai.moderations.create({ input: content });
     if (modResponse.results[0].flagged) {
-      console.log(`[AI Moderation - ETAPA 2] Mensaje BLOQUEADO (Moderación Gratuita)`);
-      return { isSafe: false, reason: 'Tu mensaje fue bloqueado por moderación.' };
+      console.log(`[AI Moderation] Bloqueado por OpenAI Moderation`);
+      return { isSafe: false, reason: 'Tu mensaje infringe las normas de seguridad.' };
     }
   } catch (modError) {
-    console.error("ERROR en AI Analyzer (Etapa 2 - Moderación Gratuita):", modError);
+    console.error("Error en Moderación Gratuita (ignorando fallo):", modError);
   }
 
-  // --- ETAPA 3: "Detective" de Contexto y Relevancia (Costo: $ PAGO) ---
-  const preference = creatorPreference || "Mensajes sobre temas de vida, coaching y consejos.";
+  // --- ETAPA 3: Análisis de Contexto (YA NO BLOQUEA POR TEMA) ---
+  // Si el creador no puso nada, el tema es LIBRE.
+  const preference = creatorPreference || "Cualquier tema.";
   
   const prompt = `
-  Analiza el siguiente mensaje de un fan. Tu tarea es evaluarlo en dos puntos CRUCIALES.
+  Analiza el siguiente mensaje.
   
-  Punto 1: SEGURIDAD (SAFE/UNSAFE). Considera 'UNSAFE' CUALQUIER insinuación sexual, pregunta personal sospechosa, acoso sutil o amenaza.
+  Contexto deseado por el creador: "${preference}".
   
-  Punto 2: RELEVANCIA TEMÁTICA. El creador configuró su tema deseado como: "${preference}".
-  Tu tarea es asignar un puntaje de relevancia del 1 al 10.
+  Tu tarea es asignar un puntaje de relevancia (1-10) y verificar seguridad.
+  NO seas estricto con la relevancia. Si es un mensaje normal, es seguro.
+  Solo marca 'UNSAFE' si es acoso real, amenazas o contenido ilegal.
   
-  🚨 REGLAS ESTRICTAS DE PUNTAJE:
-  -   **Puntaje 1-3 (RECHAZAR):** Asigna esto si el mensaje es spam, texto sin sentido, O SI ES GENÉRICO y no aporta nada al tema (ej: "Hola", "¿Cómo estás?", "Saludos", "Me gustas"). Aunque sea respetuoso, si no habla del tema "${preference}", es irrelevante.
-  -   **Puntaje 4-5 (DUDOSO):** Mensajes que tocan el tema muy superficialmente.
-  -   **Puntaje 6-10 (APROBAR):** El mensaje habla CLARAMENTE sobre "${preference}".
+  Responde JSON: {"safety": "SAFE" | "UNSAFE", "relevance_score": number}
   
-  Tu respuesta debe ser una cadena de texto en formato JSON, SIN NINGÚN TEXTO ADICIONAL.
-  Formato requerido: {"safety": "SAFE o UNSAFE", "relevance_score": [número del 1 al 10]}
-  
-  Mensaje del Fan: "${content}"
+  Mensaje: "${content}"
 `;
 
   try {
@@ -79,94 +75,37 @@ const analyzeMessage = async (content, creatorPreference) => {
     const jsonText = response.choices[0].message.content.trim();
     const result = JSON.parse(jsonText);
 
-    // --- Lógica de Seguridad (E1 - El Policía) ---
+    // 1. Seguridad (EL ÚNICO FRENO)
     if (result.safety === 'UNSAFE') {
-      console.log(`[AI Moderation - ETAPA 3] Mensaje BLOQUEADO por Seguridad: ${content.substring(0, 30)}...`);
-      return { isSafe: false, reason: 'Tu mensaje fue bloqueado por normas de seguridad.' };
+      console.log(`[AI] Bloqueado por Seguridad (GPT): ${content.substring(0, 20)}...`);
+      return { isSafe: false, reason: 'Mensaje bloqueado por seguridad.' };
     }
 
-    // --- Lógica de Relevancia (E4 - El Valor) ---
-    const relevanceScore = parseInt(result.relevance_score, 10);
+    // 2. Relevancia (AHORA ES SOLO UN DATO, NO UNA BARRERA)
+    const relevanceScore = parseInt(result.relevance_score, 10) || 5;
     
-    if (isNaN(relevanceScore)) throw new Error("IA no devolvió score de relevancia");
+    // ❌ ELIMINADO: El bloque que rechazaba si score <= 3.
+    // "La Vía Negativa": Quitamos la fricción. Todo mensaje seguro PASA.
 
-    // 👇👇👇 AQUÍ ESTABA EL FALTANTE: BLOQUEO POR RELEVANCIA BAJA 👇👇👇
-    if (relevanceScore <= 3) {
-        console.log(`[AI Moderation - ETAPA 3] ⛔ BLOQUEADO por Irrelevancia (Score: ${relevanceScore}). Tema: "${preference}"`);
-        return { 
-            isSafe: false, 
-            reason: `Tu mensaje no tiene que ver con el tema del creador: "${preference}".` 
-        };
-    }
-    // 👆👆👆 FIN DE LA CORRECCIÓN 👆👆👆
-
-    console.log(`[AI Moderation - ETAPA 3] Mensaje APROBADO. Relevancia: ${relevanceScore}`);
+    console.log(`[AI] Aprobado. Relevancia: ${relevanceScore} (Tema: ${preference})`);
     
     return { isSafe: true, relevance: relevanceScore };
 
   } catch (error) {
-    console.error(`ERROR en AI Analyzer (Etapa 3 - ${modelToUse}):`, error);
-    // Si la IA falla, por seguridad (para no perder ventas) dejamos pasar con un 5 neutral.
+    console.error(`ERROR AI (Etapa 3):`, error);
+    // Si la IA falla, APROBAMOS. No perdemos dinero por errores técnicos.
     return { isSafe: true, relevance: 5 }; 
   }
 };
 
 /**
- * (FUNCIÓN AUDITORA)
- * Analiza la RESPUESTA de un creador... (sin cambios aquí)
+ * (FUNCIÓN AUDITORA - RESPUESTA DEL CREADOR)
+ * También la hacemos permisiva. El creador ya cobró, déjalo responder.
  */
 async function analyzeCreatorResponse(responseContent, premiumContract, lastAnonQuestion) {
-  const questionContext = lastAnonQuestion || "la pregunta del usuario";
-
-  const prompt = `
-    Eres un auditor de calidad. Tu principal objetivo es ser permisivo. NO seas estricto.
-
-    Revisa la siguiente interacción:
-    1.  **La Pregunta del Anónimo:** "${questionContext}"
-    2.  **La Promesa del Creador (su contrato):** "${premiumContract}"
-    3.  **La Respuesta del Creador:** "${responseContent}"
-
-    Tu tarea es determinar si la respuesta es válida.
-    Debes APROBAR (true) casi todo, EXCEPTO lo siguiente:
-
-    Rechaza (false) ÚNICAMENTE si la respuesta es:
-    -   Evidentemente genérica (ej: "gracias", "ok", "jaja", "excelente pregunta")
-    -   De muy bajo esfuerzo o evasiva (ej: "no sé", "...", "luego te digo")
-    -   Ignora TOTALMENTE la pregunta o el tema del anónimo.
-    -   Contradice directamente la promesa del contrato (ej: promete audio y da texto).
-
-    Responde SOLAMENTE con un objeto JSON con dos claves:
-    1. "cumple_promesa": (true/false)
-    2. "razon": (Explicación breve si es 'false'.)
-  `;
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo-0125", 
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: responseContent } 
-      ],
-      max_tokens: 100,
-      temperature: 0.1,
-      response_format: { type: "json_object" }
-    });
-
-    const jsonText = response.choices[0].message.content.trim();
-    const result = JSON.parse(jsonText);
-
-    if (result.cumple_promesa === true) {
-      console.log(`[AI Auditor - Creador] ✅ Respuesta APROBADA.`);
-      return { success: true, reason: result.razon };
-    } else {
-      console.log(`[AI Auditor - Creador] ❌ Respuesta BLOQUEADA. Razón: ${result.razon}`);
-      return { success: false, reason: result.razon || "La respuesta no cumple con la calidad." };
-    }
-
-  } catch (error) {
-    console.error("ERROR en AI Auditor (Creador):", error);
-    return { success: true, reason: "Error de IA (Pase temporal)" }; 
-  }
+    // Retornamos TRUE siempre.
+    // En el MVP, no queremos bloquear al creador de liberar su dinero.
+    return { success: true, reason: "Aprobado por MVP" };
 }
 
 module.exports = { 
