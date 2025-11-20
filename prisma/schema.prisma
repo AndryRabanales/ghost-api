@@ -86,3 +86,11 @@ model ProductLink {
 
   @@index([creatorId])
 }
+
+model InviteCode {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  isUsed    Boolean  @default(false)
+  usedBy    String?  // Guardaremos el email de quien lo usó
+  createdAt DateTime @default(now())
+}

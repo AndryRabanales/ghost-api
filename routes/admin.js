@@ -50,7 +50,7 @@ async function adminRoutes(fastify, opts) {
     }
   );
 
-  // B. CRON DE REINTENTO DE PAGOS (NUEVO - PARA PAGOS EN COLA)
+  // B. CRON DE REINTENTO DE PAGOS (PARA PAGOS EN COLA)
   fastify.post('/admin/retry-payments', { preHandler: [fastify.adminAuthenticate] }, async (req, reply) => {
       try {
           // Buscar pagos que quedaron esperando fondos
@@ -109,6 +109,22 @@ async function adminRoutes(fastify, opts) {
           fastify.log.error(err);
           reply.code(500).send({ error: 'Error en retry-payments' });
       }
+  });
+
+  // C. GENERAR CÓDIGO DE INVITACIÓN (SOFT LAUNCH)
+  fastify.post('/admin/generate-invite', { preHandler: [fastify.adminAuthenticate] }, async (req, reply) => {
+    try {
+        const code = `GHOST-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+        
+        await prisma.inviteCode.create({ 
+            data: { code } 
+        });
+
+        return reply.send({ success: true, code });
+    } catch (e) {
+        fastify.log.error(e);
+        return reply.code(500).send({ error: "Error generando código" });
+    }
   });
 }
 
