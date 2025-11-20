@@ -1,111 +1,95 @@
 const { OpenAI } = require("openai");
 
-// 1. Carga la clave API de OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// --- ETAPA 1 (Costo: $0) ---
-// Filtro de insultos obvios y directos.
+// Filtro rápido y gratis para insultos graves
 const LOCAL_BAD_WORDS = [
   'idiota', 'imbécil', 'estúpido', 'estupido', 'muérete', 'muerete', 'suicídate',
   'puta', 'puto', 'zorra', 'perra', 'naco', 'gordo', 'gorda', 'asco',
   'te voy a matar', 'te voy a buscar', 'te voy a encontrar'
 ];
 
-/**
- * La estrategia de 3 etapas para analizar mensajes ANÓNIMOS.
- * Etapa 1: Filtro local de palabras (Gratis)
- * Etapa 2: Modelo de Moderación de OpenAI (Gratis)
- * Etapa 3: Análisis de Relevancia (SOLO INFORMATIVO, YA NO BLOQUEA)
- */
 const analyzeMessage = async (content, creatorPreference) => {
   const lowerCaseContent = content.toLowerCase();
 
-  // --- ETAPA 1 y 2 (Seguridad Básica - SE MANTIENE) ---
+  // 1. Filtro Local (Palabras prohibidas)
   for (const word of LOCAL_BAD_WORDS) {
     if (lowerCaseContent.includes(word)) {
-      console.log(`[AI Moderation] Bloqueado por palabra clave: ${word}`);
       return { isSafe: false, reason: 'Tu mensaje contiene lenguaje ofensivo prohibido.' };
     }
   }
 
+  // 2. Moderación OpenAI (Gratis - Capa de seguridad extra)
   try {
     const modResponse = await openai.moderations.create({ input: content });
     if (modResponse.results[0].flagged) {
-      console.log(`[AI Moderation] Bloqueado por OpenAI Moderation`);
       return { isSafe: false, reason: 'Tu mensaje infringe las normas de seguridad.' };
     }
   } catch (modError) {
-    console.error("Error en Moderación Gratuita (ignorando fallo):", modError);
+    console.error("Error moderación:", modError);
   }
 
-  // --- ETAPA 3: Análisis de Contexto (YA NO BLOQUEA POR TEMA) ---
-  // Si el creador no puso nada, el tema es LIBRE.
-  const preference = creatorPreference || "Cualquier tema.";
-  
+  // 3. Análisis de Contexto (GPT) - MODALIDAD ESTRICTA
+  const preference = creatorPreference && creatorPreference.trim() !== "" 
+    ? creatorPreference 
+    : "Cualquier tema"; // Si no hay preferencia, acepta todo.
+
+  // Prompt diseñado para bloquear si el tema no coincide
   const prompt = `
-  Analiza el siguiente mensaje.
+  Actúa como un moderador estricto.
   
-  Contexto deseado por el creador: "${preference}".
+  El creador ha establecido este TEMA OBLIGATORIO: "${preference}".
   
-  Tu tarea es asignar un puntaje de relevancia (1-10) y verificar seguridad.
-  NO seas estricto con la relevancia. Si es un mensaje normal, es seguro.
-  Solo marca 'UNSAFE' si es acoso real, amenazas o contenido ilegal.
-  
-  Responde JSON: {"safety": "SAFE" | "UNSAFE", "relevance_score": number}
-  
-  Mensaje: "${content}"
-`;
+  Analiza el mensaje del usuario: "${content}"
+
+  Reglas:
+  1. Si el mensaje es ofensivo o peligroso, marca safety="UNSAFE".
+  2. Si el mensaje NO tiene relación con el tema "${preference}", marca safety="OFF_TOPIC".
+  3. Si el mensaje cumple con el tema, marca safety="SAFE".
+
+  Responde SOLO en formato JSON:
+  {"safety": "SAFE" | "UNSAFE" | "OFF_TOPIC", "reason_es": "Explicación muy breve para el usuario en español"}
+  `;
 
   try {
-    const modelToUse = "gpt-3.5-turbo-0125"; 
-    
     const response = await openai.chat.completions.create({
-      model: modelToUse,
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: content }
-      ],
-      max_tokens: 100, 
-      temperature: 0,
-      response_format: { type: "json_object" } 
+      model: "gpt-3.5-turbo-0125", // Modelo rápido y económico
+      messages: [{ role: "system", content: prompt }],
+      max_tokens: 120,
+      temperature: 0, // Temperatura 0 para máxima objetividad
+      response_format: { type: "json_object" }
     });
 
-    const jsonText = response.choices[0].message.content.trim();
-    const result = JSON.parse(jsonText);
+    const result = JSON.parse(response.choices[0].message.content);
+    console.log(`[AI Check] Tema: "${preference}" | Estado: ${result.safety} | Razón: ${result.reason_es}`);
 
-    // 1. Seguridad (EL ÚNICO FRENO)
+    // BLOQUEO 1: Seguridad
     if (result.safety === 'UNSAFE') {
-      console.log(`[AI] Bloqueado por Seguridad (GPT): ${content.substring(0, 20)}...`);
-      return { isSafe: false, reason: 'Mensaje bloqueado por seguridad.' };
+      return { isSafe: false, reason: result.reason_es || 'Mensaje bloqueado por seguridad.' };
     }
 
-    // 2. Relevancia (AHORA ES SOLO UN DATO, NO UNA BARRERA)
-    const relevanceScore = parseInt(result.relevance_score, 10) || 5;
-    
-    // ❌ ELIMINADO: El bloque que rechazaba si score <= 3.
-    // "La Vía Negativa": Quitamos la fricción. Todo mensaje seguro PASA.
+    // BLOQUEO 2: Tema Incorrecto (ESTO ES LO QUE FALTABA)
+    if (result.safety === 'OFF_TOPIC') {
+      return { isSafe: false, reason: result.reason_es || `Por favor, apégate al tema: ${preference}` };
+    }
 
-    console.log(`[AI] Aprobado. Relevancia: ${relevanceScore} (Tema: ${preference})`);
-    
-    return { isSafe: true, relevance: relevanceScore };
+    // Aprobado
+    return { isSafe: true, relevance: 10 };
 
   } catch (error) {
-    console.error(`ERROR AI (Etapa 3):`, error);
-    // Si la IA falla, APROBAMOS. No perdemos dinero por errores técnicos.
+    console.error("Error AI (Etapa 3):", error);
+    // Fallback: Si la IA falla técnicamente, permitimos el mensaje para no perder la venta
     return { isSafe: true, relevance: 5 }; 
   }
 };
 
 /**
- * (FUNCIÓN AUDITORA - RESPUESTA DEL CREADOR)
- * También la hacemos permisiva. El creador ya cobró, déjalo responder.
+ * Auditoría de respuestas del creador (Permisiva por ahora)
  */
-async function analyzeCreatorResponse(responseContent, premiumContract, lastAnonQuestion) {
-    // Retornamos TRUE siempre.
-    // En el MVP, no queremos bloquear al creador de liberar su dinero.
-    return { success: true, reason: "Aprobado por MVP" };
+async function analyzeCreatorResponse(responseContent) {
+    return { success: true, reason: "Aprobado" };
 }
 
 module.exports = { 
