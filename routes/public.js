@@ -45,8 +45,8 @@ async function publicRoutes(fastify, opts) {
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
 
-    if (!tipAmount || tipAmount < 10) {
-        return reply.code(400).send({ error: "El monto mínimo es $10 MXN" });
+    if (!tipAmount || tipAmount < 100) {
+        return reply.code(400).send({ error: "El monto mínimo es $100 MXN" });
     }
 
     const cleanContent = sanitize(content);
