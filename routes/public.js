@@ -4,11 +4,13 @@ const prisma = new PrismaClient();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { sanitize } = require("../utils/sanitize");
 const { analyzeMessage } = require("../utils/aiAnalyzer");
+const crypto = require("crypto"); // Asegúrate de importar crypto
 
 async function publicRoutes(fastify, opts) {
 
-  // 1. OBTENER PERFIL PÚBLICO
+  // 1. OBTENER PERFIL PÚBLICO (Sin cambios)
   fastify.get("/public/creator/:publicId", async (req, reply) => {
+    // ... (Tu código existente aquí se mantiene igual)
     const { publicId } = req.params;
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
@@ -36,7 +38,7 @@ async function publicRoutes(fastify, opts) {
     });
   });
 
-  // 2. CREAR SESIÓN DE PAGO (SIN TRANSFERENCIA AUTOMÁTICA)
+  // 2. CREAR SESIÓN DE PAGO
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
     const { publicId } = req.params;
     const { content, alias, fanEmail, tipAmount } = req.body; 
@@ -50,6 +52,7 @@ async function publicRoutes(fastify, opts) {
 
     const cleanContent = sanitize(content);
     
+    // ... (Tu validación de IA existente aquí) ...
     try {
         const safetyCheck = await analyzeMessage(cleanContent, creator.topicPreference);
         if (!safetyCheck.isSafe) {
@@ -61,6 +64,9 @@ async function publicRoutes(fastify, opts) {
 
     const amountCents = Math.round(tipAmount * 100);
     
+    // GENERAMOS UN ID DE GRUPO PARA VINCULAR COBRO Y TRANSFERENCIA
+    const transferGroup = `group_${crypto.randomUUID()}`;
+
     const sessionConfig = {
         payment_method_types: ['card'],
         line_items: [{
@@ -68,7 +74,7 @@ async function publicRoutes(fastify, opts) {
               currency: 'mxn',
               product_data: {
                 name: `Mensaje para ${creator.name}`,
-                description: 'Prioridad Alta',
+                description: 'Los fondos se liberan al recibir respuesta.', // Transparencia
               },
               unit_amount: amountCents,
             },
@@ -77,6 +83,12 @@ async function publicRoutes(fastify, opts) {
         mode: 'payment',
         success_url: `${process.env.FRONTEND_URL}/r/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}`,
+        
+        // 👇 ESTO ES IMPORTANTE PARA LA TRAZABILIDAD
+        payment_intent_data: {
+            transfer_group: transferGroup, 
+        },
+
         metadata: {
           creatorId: creator.id,
           publicId: creator.publicId,
@@ -85,13 +97,10 @@ async function publicRoutes(fastify, opts) {
           fanEmail: fanEmail || "",
           priorityScoreBase: String(tipAmount),
           topicPreference: creator.topicPreference,
-          // 🔥 Guardamos el ID de destino para usarlo DESPUÉS, no ahora.
-          transfer_destination: creator.stripeAccountId || "" 
+          // Guardamos el grupo en metadata para usarlo en el webhook si fuera necesario
+          transferGroup: transferGroup 
         },
     };
-
-    // ❌ ELIMINADO: payment_intent_data con transfer_data.
-    // Ahora el dinero llega a TU cuenta de plataforma y se queda ahí.
 
     try {
       const session = await stripe.checkout.sessions.create(sessionConfig);
@@ -102,48 +111,49 @@ async function publicRoutes(fastify, opts) {
     }
   });
 
-  // 3. RECUPERAR CHAT (CON POLLING)
+  // 3. RECUPERAR CHAT (Sin cambios)
   fastify.get("/public/chat-from-session", async (req, reply) => {
-    const { session_id } = req.query;
-    if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
-
-    try {
-      const session = await stripe.checkout.sessions.retrieve(session_id);
-      if(!session || session.payment_status !== 'paid') {
-          return reply.code(404).send({ error: "Pago no completado" });
+      // ... (Mismo código que ya tienes)
+      const { session_id } = req.query;
+      if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
+  
+      try {
+        const session = await stripe.checkout.sessions.retrieve(session_id);
+        if(!session || session.payment_status !== 'paid') {
+            return reply.code(404).send({ error: "Pago no completado" });
+        }
+  
+        const paymentIntentId = session.payment_intent; 
+  
+        let message = null;
+        for (let i = 0; i < 10; i++) { 
+            message = await prisma.chatMessage.findUnique({
+                where: { tipPaymentIntentId: paymentIntentId }, 
+                include: { chat: { include: { creator: true } } }
+            });
+            if (message) break; 
+            await new Promise(resolve => setTimeout(resolve, 1000)); 
+        }
+  
+        if (!message) {
+             return reply.code(202).send({ 
+                 status: 'processing', 
+                 info: "Pago recibido. Procesando mensaje..." 
+             });
+        }
+  
+        reply.send({
+          chatId: message.chat.id,
+          anonToken: message.chat.anonToken,
+          creatorName: message.chat.creator.name,
+          preview: message.content,
+          ts: message.createdAt
+        });
+  
+      } catch (err) {
+        fastify.log.error(err);
+        reply.code(500).send({ error: err.message });
       }
-
-      const paymentIntentId = session.payment_intent; 
-
-      let message = null;
-      for (let i = 0; i < 10; i++) { 
-          message = await prisma.chatMessage.findUnique({
-              where: { tipPaymentIntentId: paymentIntentId }, 
-              include: { chat: { include: { creator: true } } }
-          });
-          if (message) break; 
-          await new Promise(resolve => setTimeout(resolve, 1000)); 
-      }
-
-      if (!message) {
-           return reply.code(202).send({ 
-               status: 'processing', 
-               info: "Pago recibido. Procesando mensaje..." 
-           });
-      }
-
-      reply.send({
-        chatId: message.chat.id,
-        anonToken: message.chat.anonToken,
-        creatorName: message.chat.creator.name,
-        preview: message.content,
-        ts: message.createdAt
-      });
-
-    } catch (err) {
-      fastify.log.error(err);
-      reply.code(500).send({ error: err.message });
-    }
   });
 }
 
