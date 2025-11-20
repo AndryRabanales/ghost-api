@@ -2,7 +2,7 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const crypto = require("crypto"); // 👈 NECESARIO para generar el ID del grupo
+const crypto = require("crypto"); 
 const { sanitize } = require("../utils/sanitize");
 const { analyzeMessage } = require("../utils/aiAnalyzer");
 
@@ -63,7 +63,7 @@ async function publicRoutes(fastify, opts) {
 
     const amountCents = Math.round(tipAmount * 100);
     
-    // 👇 GENERAMOS UN ID DE GRUPO ÚNICO (La etiqueta para el dinero)
+    // ID DE GRUPO PARA RASTREAR EL DINERO
     const transferGroup = `chat_${crypto.randomUUID()}`;
 
     const sessionConfig = {
@@ -83,7 +83,7 @@ async function publicRoutes(fastify, opts) {
         success_url: `${process.env.FRONTEND_URL}/r/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL}/u/${publicId}`,
         
-        // 👇 VINCULAMOS EL PAGO AL GRUPO (Pero el dinero se queda en TU plataforma)
+        // El dinero se queda en TU plataforma temporalmente
         payment_intent_data: {
             transfer_group: transferGroup, 
         },
@@ -94,9 +94,13 @@ async function publicRoutes(fastify, opts) {
           content: cleanContent.substring(0, 500),
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
+          
+          // 🔥🔥🔥 AQUÍ ESTABA EL ERROR: FALTABA ESTA LÍNEA 🔥🔥🔥
+          tipAmount: String(tipAmount), 
+          // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+          
           priorityScoreBase: String(tipAmount),
           topicPreference: creator.topicPreference,
-          // Guardamos el grupo para referencia futura
           transferGroup: transferGroup 
         },
     };
@@ -124,7 +128,6 @@ async function publicRoutes(fastify, opts) {
       const paymentIntentId = session.payment_intent; 
 
       let message = null;
-      // Intentamos buscar el mensaje varias veces (polling) por si el webhook tarda
       for (let i = 0; i < 10; i++) { 
           message = await prisma.chatMessage.findUnique({
               where: { tipPaymentIntentId: paymentIntentId }, 
