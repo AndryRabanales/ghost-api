@@ -60,8 +60,7 @@ async function creatorsRoutes(fastify, opts) {
                   fastify.log.info(`✅ (Auto-Fix) Cuenta Stripe lista: ${creator.name}`);
               }
           } catch (stripeErr) {
-             // Si la cuenta no existe (por cambio de claves), no hacemos nada aquí,
-             // se arreglará cuando intente conectar de nuevo en /stripe-onboarding
+             // Si la cuenta no existe (por cambio de claves), no hacemos nada aquí.
           }
       }
 
@@ -196,7 +195,7 @@ async function creatorsRoutes(fastify, opts) {
       const { creatorId } = req.params;
       if (req.user.id !== creatorId) return reply.code(403).send({ error: "No autorizado" });
       
-      const value = req.body[field]; // Ya viene limpio/validado del frontend, pero podrías añadir validación extra aquí
+      const value = req.body[field]; 
       
       try {
         const updated = await prisma.creator.update({
@@ -217,7 +216,7 @@ async function creatorsRoutes(fastify, opts) {
   fastify.post("/creators/:creatorId/update-topic", { preHandler: [fastify.authenticate] }, (req, r) => updateSettings(req, r, 'topicPreference'));
   fastify.post("/creators/:creatorId/settings", { preHandler: [fastify.authenticate] }, (req, r) => updateSettings(req, r, 'baseTipAmountCents'));
 
-  // 7. LISTAR CHATS DEL DASHBOARD
+  // 8. LISTAR CHATS DEL DASHBOARD
   fastify.get(
     "/dashboard/:dashboardId/chats",
     { preHandler: [fastify.authenticate] },
@@ -242,5 +241,24 @@ async function creatorsRoutes(fastify, opts) {
           previewMessage: chat.messages[0] || null
         }));
         
-        // Ordenar por Prioridad ($$$) y luego Fecha
-        formatted.sort((a,
+        // Ordenar: Prioridad primero ($$$), luego fecha
+        formatted.sort((a, b) => {
+            const scoreA = a.previewMessage?.priorityScore || 0;
+            const scoreB = b.previewMessage?.priorityScore || 0;
+            if (scoreA !== scoreB) return scoreB - scoreA; 
+            
+            const dateA = new Date(a.previewMessage?.createdAt || a.createdAt).getTime();
+            const dateB = new Date(b.previewMessage?.createdAt || b.createdAt).getTime();
+            return dateB - dateA;
+        });
+        
+        reply.send(formatted); 
+      } catch (err) {
+        fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
+        reply.code(500).send({ error: "Error obteniendo chats" });
+      }
+    }
+  );
+}
+
+module.exports = creatorsRoutes;
