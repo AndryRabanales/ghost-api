@@ -1,4 +1,4 @@
-// andryrabanales/ghost-api/ghost-api-19b1772a30b344a83537d80a3b03667a162a7ad4/prisma/schema.prisma
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -30,13 +30,13 @@ model Creator {
 
   // Métricas Simples
   msgCountToday          Int       @default(0)
-  dailyMsgLimit          Int       @default(30) // Límite de escasez artificial
+  dailyMsgLimit          Int       @default(30)
   msgCountLastReset      DateTime  @default(now())
   lastActive             DateTime?
 
   // Relaciones
   chats                  Chat[]
-  links                  ProductLink[] // Si usas links extra
+  links                  ProductLink[]
 }
 
 // --- MODELO CHAT (La Transacción) ---
@@ -66,16 +66,16 @@ model ChatMessage {
   // --- DINERO ---
   tipAmount          Float?
   tipPaymentIntentId String?  @unique
-  tipStatus          String?  // 'PENDING' -> 'FULFILLED'
+  tipStatus          String?  // 'PENDING', 'PROCESSING', 'FULFILLED'
   
-  // --- IA (Invisible para el usuario) ---
+  // --- IA ---
   priorityScore      Float?
   relevanceScore     Int?
 
   chat               Chat     @relation(fields: [chatId], references: [id])
 }
 
-// --- MODELO AUXILIAR (Opcional, para links extra en perfil) ---
+// --- MODELO AUXILIAR (Links extra) ---
 model ProductLink {
   id        String   @id @default(uuid())
   creatorId String
@@ -87,10 +87,11 @@ model ProductLink {
   @@index([creatorId])
 }
 
+// --- 👇 NUEVO MODELO: CÓDIGOS DE INVITACIÓN (SOFT LAUNCH) 👇 ---
 model InviteCode {
   id        String   @id @default(uuid())
   code      String   @unique
   isUsed    Boolean  @default(false)
-  usedBy    String?  // Guardaremos el email de quien lo usó
+  usedBy    String?  // Guardamos el email de quien lo usó
   createdAt DateTime @default(now())
 }
