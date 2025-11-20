@@ -36,7 +36,7 @@ async function publicRoutes(fastify, opts) {
     });
   });
 
-  // 2. CREAR SESIÓN DE PAGO
+  // 2. CREAR SESIÓN DE PAGO (SIN TRANSFERENCIA AUTOMÁTICA)
   fastify.post("/public/:publicId/create-checkout-session", async (req, reply) => {
     const { publicId } = req.params;
     const { content, alias, fanEmail, tipAmount } = req.body; 
@@ -44,7 +44,6 @@ async function publicRoutes(fastify, opts) {
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
 
-    // Validación de precio mínimo $100 MXN
     if (!tipAmount || tipAmount < 100) {
         return reply.code(400).send({ error: "El monto mínimo es $100 MXN" });
     }
@@ -85,18 +84,14 @@ async function publicRoutes(fastify, opts) {
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
           priorityScoreBase: String(tipAmount),
-          topicPreference: creator.topicPreference
+          topicPreference: creator.topicPreference,
+          // 🔥 Guardamos el ID de destino para usarlo DESPUÉS, no ahora.
+          transfer_destination: creator.stripeAccountId || "" 
         },
     };
 
-    if (creator.stripeAccountId && creator.stripeAccountOnboarded) {
-        const platformFeePercent = 0.20; 
-        const applicationFee = Math.round(amountCents * platformFeePercent);
-        sessionConfig.payment_intent_data = {
-            application_fee_amount: applicationFee,
-            transfer_data: { destination: creator.stripeAccountId },
-        };
-    }
+    // ❌ ELIMINADO: payment_intent_data con transfer_data.
+    // Ahora el dinero llega a TU cuenta de plataforma y se queda ahí.
 
     try {
       const session = await stripe.checkout.sessions.create(sessionConfig);
@@ -107,7 +102,7 @@ async function publicRoutes(fastify, opts) {
     }
   });
 
-  // 3. RECUPERAR CHAT (FIX DE POLLING APLICADO) ✅
+  // 3. RECUPERAR CHAT (CON POLLING)
   fastify.get("/public/chat-from-session", async (req, reply) => {
     const { session_id } = req.query;
     if (!session_id) return reply.code(400).send({ error: "Falta session_id" });
@@ -120,23 +115,20 @@ async function publicRoutes(fastify, opts) {
 
       const paymentIntentId = session.payment_intent; 
 
-      // --- BUCLE DE ESPERA (POLLING) ---
-      // Busca el mensaje específico por su ID de pago, no "el último"
       let message = null;
-      for (let i = 0; i < 10; i++) { // 10 intentos de 1s = 10 segundos máximo
+      for (let i = 0; i < 10; i++) { 
           message = await prisma.chatMessage.findUnique({
               where: { tipPaymentIntentId: paymentIntentId }, 
               include: { chat: { include: { creator: true } } }
           });
-          if (message) break; // ¡Lo encontramos!
+          if (message) break; 
           await new Promise(resolve => setTimeout(resolve, 1000)); 
       }
-      // ----------------------------------
 
       if (!message) {
            return reply.code(202).send({ 
                status: 'processing', 
-               info: "Pago recibido. Tu mensaje está siendo procesado y aparecerá en breve." 
+               info: "Pago recibido. Procesando mensaje..." 
            });
       }
 
