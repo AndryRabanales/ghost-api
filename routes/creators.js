@@ -3,12 +3,11 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 const { sanitize } = require("../utils/sanitize");
-// 👇 IMPORTANTE: Inicializar Stripe con tu clave secreta del .env
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function creatorsRoutes(fastify, opts) {
   
-  // 1. CREAR CREADOR (Registro)
+  // 1. CREAR CREADOR
   fastify.post("/creators", async (req, reply) => {
     try {
       const { name } = req.body;
@@ -37,7 +36,7 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // 2. OBTENER PERFIL (ME) - CON AUTO-VALIDACIÓN DE STRIPE
+  // 2. OBTENER PERFIL (ME) - ACTUALIZADO CON SALDO EN PROCESO
   fastify.get("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     try {
       let creator = null;
@@ -48,7 +47,7 @@ async function creatorsRoutes(fastify, opts) {
       }
       if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
 
-      // 👇 AUTO-CHECK: Si tiene cuenta pero dice "no listo", preguntamos a Stripe
+      // Auto-validación Stripe
       if (creator.stripeAccountId && !creator.stripeAccountOnboarded) {
           try {
               const account = await stripe.accounts.retrieve(creator.stripeAccountId);
@@ -57,22 +56,30 @@ async function creatorsRoutes(fastify, opts) {
                       where: { id: creator.id },
                       data: { stripeAccountOnboarded: true }
                   });
-                  fastify.log.info(`✅ (Auto-Fix) Cuenta Stripe lista: ${creator.name}`);
               }
-          } catch (stripeErr) {
-             // Si la cuenta no existe (por cambio de claves), no hacemos nada aquí.
-          }
+          } catch (stripeErr) {}
       }
 
-      // Cálculo de Balance
+      // --- 👇 CÁLCULO DE BALANCES MEJORADO 👇 ---
+      
+      // 1. Disponible (Ya en Stripe del creador) - FULFILLED
       const balance = await prisma.chatMessage.aggregate({
         _sum: { tipAmount: true },
         where: { chat: { creatorId: creator.id }, tipStatus: 'FULFILLED', from: 'anon' },
       });
+
+      // 2. En Proceso (Ya respondido, esperando banco) - PROCESSING
+      const processing = await prisma.chatMessage.aggregate({
+        _sum: { tipAmount: true },
+        where: { chat: { creatorId: creator.id }, tipStatus: 'PROCESSING', from: 'anon' },
+      });
+
+      // 3. Pendiente (Falta responder) - PENDING
       const pending = await prisma.chatMessage.aggregate({
         _sum: { tipAmount: true },
         where: { chat: { creatorId: creator.id }, tipStatus: 'PENDING', from: 'anon' },
       });
+      // --- 👆 FIN CÁLCULOS 👆 ---
 
       reply.send({
         id: creator.id,
@@ -82,8 +89,12 @@ async function creatorsRoutes(fastify, opts) {
         isPremium: creator.isPremium,
         stripeAccountId: creator.stripeAccountId, 
         stripeAccountOnboarded: creator.stripeAccountOnboarded,
-        availableBalance: balance._sum.tipAmount || 0,
-        pendingBalance: pending._sum.tipAmount || 0,
+        
+        // Enviamos los 3 estados
+        availableBalance: balance._sum.tipAmount || 0,   // Ya transferido
+        processingBalance: processing._sum.tipAmount || 0, // En cola (NUEVO)
+        pendingBalance: pending._sum.tipAmount || 0,     // Por ganar
+        
         premiumContract: creator.premiumContract,
         baseTipAmountCents: creator.baseTipAmountCents,
         topicPreference: creator.topicPreference
@@ -94,29 +105,21 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
   
-  // 3. STRIPE ONBOARDING (BLINDADO Y AUTO-REPARABLE)
-  fastify.post(
-    "/creators/stripe-onboarding",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
+  // ... (El resto de rutas de onboarding y settings se mantienen IGUAL) ...
+  // 3. STRIPE ONBOARDING
+  fastify.post("/creators/stripe-onboarding", { preHandler: [fastify.authenticate] }, async (req, reply) => {
       try {
         const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
-        
-        // 1. Limpieza preventiva de cuentas simuladas
         if (creator.stripeAccountId?.startsWith('sim_')) {
              await prisma.creator.update({ where: { id: creator.id }, data: { stripeAccountId: null, stripeAccountOnboarded: false }});
              creator.stripeAccountId = null;
         }
-
-        // 2. Si ya tiene cuenta, intentamos generar link de onboarding (o login si ya acabó)
         if (creator.stripeAccountId) {
             try {
-                // Si ya está listo, mandamos login directo
                 if (creator.stripeAccountOnboarded) {
                      const loginLink = await stripe.accounts.createLoginLink(creator.stripeAccountId);
                      return reply.send({ onboarding_url: loginLink.url });
                 }
-
                 const accountLink = await stripe.accountLinks.create({
                     account: creator.stripeAccountId,
                     refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}`,
@@ -124,117 +127,72 @@ async function creatorsRoutes(fastify, opts) {
                     type: 'account_onboarding',
                 });
                 return reply.send({ onboarding_url: accountLink.url });
-
             } catch (stripeErr) {
-                // 🔥 SI FALLA (Cuenta inválida/borrada), LA BORRAMOS Y SEGUIMOS
                 if (stripeErr.code === 'account_invalid' || stripeErr.message.includes('No such account')) {
-                    fastify.log.warn(`⚠️ Cuenta inválida detectada (${creator.stripeAccountId}). Creando una nueva...`);
                     await prisma.creator.update({ where: { id: creator.id }, data: { stripeAccountId: null, stripeAccountOnboarded: false }});
-                    creator.stripeAccountId = null; // Reset local
-                } else {
-                    throw stripeErr; // Otro error real
-                }
+                    creator.stripeAccountId = null;
+                } else { throw stripeErr; }
             }
         }
-
-        // 3. Crear cuenta nueva (si no tenía o se borró arriba)
         if (!creator.stripeAccountId) {
             const account = await stripe.accounts.create({
-                type: 'express',
-                country: 'MX', 
-                email: creator.email,
+                type: 'express', country: 'MX', email: creator.email,
                 capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
             });
             await prisma.creator.update({ where: { id: creator.id }, data: { stripeAccountId: account.id } });
             creator.stripeAccountId = account.id;
         }
-
-        // 4. Generar link para la cuenta nueva
         const accountLink = await stripe.accountLinks.create({
             account: creator.stripeAccountId,
             refresh_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}`,
             return_url: `${process.env.FRONTEND_URL}/dashboard/${creator.id}?onboarding=success`,
             type: 'account_onboarding',
         });
-
         reply.send({ onboarding_url: accountLink.url });
-
       } catch (err) {
-        fastify.log.error("❌ Error Stripe Onboarding:", err);
         reply.code(500).send({ error: "Error al conectar con Stripe: " + err.message });
       }
     }
   );
 
-  // 4. STRIPE DASHBOARD (Ver Billetera) - CON RESETEO NUCLEAR
-  fastify.post(
-    "/creators/stripe-dashboard",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
+  // 4. STRIPE DASHBOARD
+  fastify.post("/creators/stripe-dashboard", { preHandler: [fastify.authenticate] }, async (req, reply) => {
       try {
         const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
-        
         if (!creator.stripeAccountId) return reply.code(400).send({ error: "Cuenta no configurada." });
-
         const loginLink = await stripe.accounts.createLoginLink(creator.stripeAccountId);
         reply.send({ url: loginLink.url });
-
       } catch (err) {
-        // ⚠️ RESETEO NUCLEAR: Si falla CUALQUIER COSA al abrir la billetera, reseteamos.
-        fastify.log.warn(`Error crítico en Stripe Dashboard. Reseteando cuenta ${req.user.id}. Error: ${err.message}`);
-        
-        await prisma.creator.update({ 
-            where: { id: req.user.id }, 
-            data: { stripeAccountId: null, stripeAccountOnboarded: false }
-        });
-        
+        await prisma.creator.update({ where: { id: req.user.id }, data: { stripeAccountId: null, stripeAccountOnboarded: false } });
         return reply.code(400).send({ error: "Conexión inestable. Por favor reconecta tu cuenta." });
       }
     }
   );
 
-  // 5. HELPER PARA ACTUALIZAR CONFIGURACIONES (DRY)
+  // 5. UPDATE SETTINGS
   const updateSettings = async (req, reply, field) => {
       const { creatorId } = req.params;
       if (req.user.id !== creatorId) return reply.code(403).send({ error: "No autorizado" });
-      
       const value = req.body[field]; 
-      
       try {
-        const updated = await prisma.creator.update({
-            where: { id: creatorId },
-            data: { [field]: value }
-        });
-        // Notificar en tiempo real
+        const updated = await prisma.creator.update({ where: { id: creatorId }, data: { [field]: value } });
         fastify.broadcastToPublic(updated.publicId, { type: 'CREATOR_INFO_UPDATE', [field]: value });
         reply.send({ success: true, [field]: value });
-      } catch (e) { 
-          fastify.log.error(e);
-          reply.code(500).send({ error: "Error actualizando configuración" }); 
-      }
+      } catch (e) { reply.code(500).send({ error: "Error actualizando configuración" }); }
   };
-
-  // 6. RUTAS DE CONFIGURACIÓN (Usando el helper)
   fastify.post("/creators/:creatorId/update-contract", { preHandler: [fastify.authenticate] }, (req, r) => updateSettings(req, r, 'premiumContract'));
   fastify.post("/creators/:creatorId/update-topic", { preHandler: [fastify.authenticate] }, (req, r) => updateSettings(req, r, 'topicPreference'));
   fastify.post("/creators/:creatorId/settings", { preHandler: [fastify.authenticate] }, (req, r) => updateSettings(req, r, 'baseTipAmountCents'));
 
-  // 8. LISTAR CHATS DEL DASHBOARD
-  fastify.get(
-    "/dashboard/:dashboardId/chats",
-    { preHandler: [fastify.authenticate] },
-    async (req, reply) => {
+  // 8. LISTAR CHATS
+  fastify.get("/dashboard/:dashboardId/chats", { preHandler: [fastify.authenticate] }, async (req, reply) => {
       try {
         const { dashboardId } = req.params;
         if (req.user.id !== dashboardId) return reply.code(403).send({ error: "No autorizado" });
-  
         const chats = await prisma.chat.findMany({
           where: { creatorId: dashboardId },
-          include: {
-            messages: { orderBy: { createdAt: "desc" }, take: 1 },
-          },
+          include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } },
         });
-  
         const formatted = chats.map(chat => ({
           id: chat.id,
           anonAlias: chat.anonAlias || "Anónimo",
@@ -243,23 +201,16 @@ async function creatorsRoutes(fastify, opts) {
           createdAt: chat.createdAt,
           previewMessage: chat.messages[0] || null
         }));
-        
-        // Ordenar por Prioridad ($$$) y luego Fecha
         formatted.sort((a, b) => {
             const scoreA = a.previewMessage?.priorityScore || 0;
             const scoreB = b.previewMessage?.priorityScore || 0;
             if (scoreA !== scoreB) return scoreB - scoreA; 
-            
             const dateA = new Date(a.previewMessage?.createdAt || a.createdAt).getTime();
             const dateB = new Date(b.previewMessage?.createdAt || b.createdAt).getTime();
             return dateB - dateA;
         });
-        
         reply.send(formatted); 
-      } catch (err) {
-        fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats:", err);
-        reply.code(500).send({ error: "Error obteniendo chats" });
-      }
+      } catch (err) { reply.code(500).send({ error: "Error obteniendo chats" }); }
     }
   );
 }
