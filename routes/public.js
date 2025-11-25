@@ -70,8 +70,9 @@ async function publicRoutes(fastify, opts) {
     }
     // --- 🔒 FIN BLOQUEO ---
 
-    if (!tipAmount || tipAmount < 100) {
-        return reply.code(400).send({ error: "El monto mínimo es $100 MXN" });
+    // 🟢 CAMBIO: Validación de mínimo $20 MXN
+    if (!tipAmount || tipAmount < 20) {
+        return reply.code(400).send({ error: "El monto mínimo es $20 MXN" });
     }
 
     const cleanContent = sanitize(content);

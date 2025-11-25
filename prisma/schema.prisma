@@ -24,7 +24,8 @@ model Creator {
   stripeAccountOnboarded Boolean   @default(false)
 
   // Configuración de Negocio
-  baseTipAmountCents     Int       @default(10000) // $100.00 MXN
+  // 🟢 CAMBIO: Default a 2000 centavos ($20.00 MXN)
+  baseTipAmountCents     Int       @default(2000) 
   // ❌ ELIMINADO: premiumContract
   topicPreference        String?   @default("Cualquier tema.")
 
