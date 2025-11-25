@@ -16,11 +16,15 @@ async function publicRoutes(fastify, opts) {
 
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Contar mensajes REALES pagados hoy
     const msgCountToday = await prisma.chatMessage.count({
       where: {
         chat: { creatorId: creator.id },
         createdAt: { gte: startOfDay },
-        from: 'anon' 
+        from: 'anon',
+        // Solo contamos los que ya se pagaron o están pendientes de liberar
+        tipStatus: { in: ['FULFILLED', 'PENDING'] } 
       }
     });
 
@@ -31,7 +35,7 @@ async function publicRoutes(fastify, opts) {
       creatorName: creator.name,
       baseTipAmountCents: creator.baseTipAmountCents,
       topicPreference: creator.topicPreference,
-      // ❌ ELIMINADO: premiumContract
+      // Enviamos el objeto escasezData con el conteo real
       escasezData: { msgCountToday, dailyMsgLimit: DAILY_LIMIT },
       isFull
     });
@@ -44,6 +48,27 @@ async function publicRoutes(fastify, opts) {
 
     const creator = await prisma.creator.findUnique({ where: { publicId } });
     if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
+
+    // --- 🔒 BLOQUEO DE LÍMITE DIARIO (CANDADO REAL) ---
+    const DAILY_LIMIT = creator.dailyMsgLimit || 30;
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    const msgCountToday = await prisma.chatMessage.count({
+      where: {
+        chat: { creatorId: creator.id },
+        createdAt: { gte: startOfDay },
+        from: 'anon',
+        tipStatus: { in: ['FULFILLED', 'PENDING'] }
+      }
+    });
+
+    if (msgCountToday >= DAILY_LIMIT) {
+        return reply.code(400).send({ 
+            error: "⛔ El creador ha alcanzado su límite diario de mensajes. Intenta mañana." 
+        });
+    }
+    // --- 🔒 FIN BLOQUEO ---
 
     if (!tipAmount || tipAmount < 100) {
         return reply.code(400).send({ error: "El monto mínimo es $100 MXN" });
@@ -95,7 +120,6 @@ async function publicRoutes(fastify, opts) {
           anonAlias: alias || "Anónimo",
           fanEmail: fanEmail || "",
           
-          // 🔥 CORRECCIÓN CRÍTICA (Mantenida)
           tipAmount: String(tipAmount), 
           
           priorityScoreBase: String(tipAmount),
