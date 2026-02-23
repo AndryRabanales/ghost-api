@@ -1,5 +1,4 @@
-// Contenido para: andryrabanales/ghost-api/ghost-api-e1322b6d8cb4a19aa105871a038f33f8393d703e/server.js
-// server.js - Versión Final con Stripe
+// server.js
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
 const websocket = require("@fastify/websocket");
@@ -13,17 +12,12 @@ const chatsRoutes = require("./routes/chats");
 const messagesRoutes = require("./routes/messages");
 const publicRoutes = require("./routes/public");
 const dashboardChats = require("./routes/dashboardChats");
-const premiumPayments = require("./routes/premiumPayments"); // (Suscripción Premium)
-
-// --- 👇 1. REEMPLAZAR WEBHOOK ---
-// const premiumWebhook = require("./routes/premiumWebhook"); // ❌ ELIMINAR MERCADO PAGO
-const stripeWebhook = require("./routes/stripeWebhook"); // ✅ AÑADIR STRIPE
 
 const adminAuthPlugin = require("./plugins/adminAuth");
 const adminRoutes = require("./routes/admin");
 
-const fastify = Fastify({ 
-  logger: true, 
+const fastify = Fastify({
+  logger: true,
   trustProxy: true,
   // --- 👇 2. AÑADIR CONFIGURACIÓN PARA RAW BODY ---
   // (Necesario para que el webhook de Stripe pueda leer la firma)
@@ -40,7 +34,7 @@ fastify.addContentTypeParser(
     try {
       if (req.routeOptions.config?.rawBody) {
         // Si la ruta pide rawBody, se lo pasamos
-        req.rawBody = body; 
+        req.rawBody = body;
       }
       // Parseamos como JSON para todas las demás rutas
       const json = JSON.parse(body);
@@ -55,14 +49,14 @@ fastify.addContentTypeParser(
 
 
 // --- CONFIGURACIÓN DE CORS (Sin cambios) ---
-fastify.register(cors, { 
-    origin: [
-      'http://localhost:3000',
-      'https://ghostmsg.space', 
-      'https://www.ghostmsg.space'
-    ], 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-  });
+fastify.register(cors, {
+  origin: [
+    'http://localhost:3000',
+    'https://ghostmsg.space',
+    'https://www.ghostmsg.space'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+});
 
 // --- PLUGINS (Sin cambios) ---
 fastify.register(authPlugin);
@@ -77,12 +71,6 @@ fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
 fastify.register(publicRoutes);
 fastify.register(dashboardChats);
-fastify.register(premiumPayments); // (Suscripción Premium, si aún la usas)
-
-// --- 👇 3. REGISTRAR EL WEBHOOK CORRECTO ---
-// fastify.register(premiumWebhook); // ❌ ELIMINAR MERCADO PAGO
-fastify.register(stripeWebhook); // ✅ AÑADIR STRIPE
-
 fastify.register(adminRoutes);
 // --- FIN REGISTRO ---
 
@@ -90,9 +78,9 @@ fastify.register(adminRoutes);
 const start = async () => {
   try {
     const port = process.env.PORT || 8080;
-    await fastify.listen({ 
+    await fastify.listen({
       port: port,
-      host: '0.0.0.0' 
+      host: '0.0.0.0'
     });
     fastify.log.info(`Servidor escuchando en el puerto: ${port}`);
   } catch (err) {
