@@ -53,7 +53,8 @@ fastify.register(cors, {
   origin: [
     'http://localhost:3000',
     'https://ghostmsg.space',
-    'https://www.ghostmsg.space'
+    'https://www.ghostmsg.space',
+    'https://ghost-web-production.up.railway.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 });
