@@ -3,11 +3,10 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 // ✅ CORRECCIÓN: Importación segura de lives.js
-const livesUtils = require("../utils/lives"); 
+const livesUtils = require("../utils/lives");
 
-const { sanitize } = require("../utils/sanitize"); 
-// --- 👇 1. MODIFICACIÓN: Importar ambas funciones de IA 👇 ---
-const { analyzeMessage, analyzeCreatorResponse } = require("../utils/aiAnalyzer");
+const { sanitize } = require("../utils/sanitize");
+// Importación de IA eliminada
 
 async function dashboardChatsRoutes(fastify, opts) {
 
@@ -19,7 +18,7 @@ async function dashboardChatsRoutes(fastify, opts) {
   }, async (req, reply) => {
     try {
       const { dashboardId, chatId } = req.params;
-      
+
       const cleanContent = sanitize(req.body.content);
 
       if (req.user.id !== dashboardId) {
@@ -32,50 +31,7 @@ async function dashboardChatsRoutes(fastify, opts) {
         return reply.code(400).send({ error: `La respuesta debe tener al menos ${MIN_LENGTH} caracteres.` });
       }
 
-      // --- 👇 3. MODIFICACIÓN: DOBLE VALIDACIÓN DE IA (Seguridad + Calidad + Contexto) 👇 ---
-      try {
-        // Chequeo 1: Seguridad (rápido)
-        const safetyCheck = await analyzeMessage(cleanContent);
-        if (!safetyCheck.isSafe) {
-          return reply.code(400).send({ error: safetyCheck.reason || 'Tu respuesta fue bloqueada por moderación.' });
-        }
-        
-        // Chequeo 2: Calidad vs Contrato y Contexto
-        // Obtenemos el contrato que el creador prometió
-        const creator = await prisma.creator.findUnique({
-          where: { id: dashboardId },
-          select: { premiumContract: true }
-        });
-        
-        // Buscamos la última pregunta del anónimo para darle contexto a la IA
-        const lastAnonMessage = await prisma.chatMessage.findFirst({
-            where: { chatId: chatId, from: 'anon' },
-            orderBy: { createdAt: 'desc' },
-            select: { content: true }
-        });
-
-        // Llamamos a la IA con el contexto
-        const qualityCheck = await analyzeCreatorResponse(
-            cleanContent, 
-            creator.premiumContract, 
-            lastAnonMessage?.content // Pasamos la pregunta del anónimo
-        );
-
-        if (!qualityCheck.success) {
-          // La IA determinó que la RESPUESTA es de baja calidad o irrelevante
-          return reply.code(400).send({ 
-            error: `Respuesta rechazada: ${qualityCheck.reason}. Ajusta tu mensaje para liberar tu pago.` 
-          });
-        }
-        
-      } catch (aiError) {
-        fastify.log.error(aiError, "Error en la validación de IA de la respuesta del creador");
-        // Si la IA falla catastróficamente, es más seguro bloquear la respuesta
-        return reply.code(500).send({ error: "Error en el servicio de análisis de IA. Intenta de nuevo." });
-      }
-      // --- 👆 FIN: VALIDACIÓN DE IA 👆 ---
-
-      // --- Si pasa la validación, el código continúa ---
+      // Validación de IA eliminada
 
       const chat = await prisma.chat.findUnique({
         where: { id: chatId }
@@ -84,41 +40,21 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!chat || chat.creatorId !== dashboardId) {
         return reply.code(404).send({ error: "Chat no encontrado o no pertenece al creador" });
       }
-      
+
       const msg = await prisma.chatMessage.create({
         data: {
           chatId: chat.id,
           from: "creator",
-          content: cleanContent, 
+          content: cleanContent,
         },
       });
 
-      // IMPLEMENTACIÓN PILAR 2: LIBERACIÓN DE FONDOS
-      // (Esta lógica ahora solo se ejecuta si la IA da el OK)
-      const lastAnonTip = await prisma.chatMessage.findFirst({
-        where: {
-          chatId: chatId,
-          from: 'anon',
-          tipStatus: 'PENDING',
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true }
-      });
 
-      if (lastAnonTip) {
-        await prisma.chatMessage.update({
-          where: { id: lastAnonTip.id },
-          data: { 
-            tipStatus: 'FULFILLED',
-          }
-        });
-        fastify.log.info(`Propina del mensaje ${lastAnonTip.id} liberada por el creador ${dashboardId}.`);
-      }
-      
+
       // Actualiza el estado activo del creador
       await prisma.creator.update({
-          where: { id: dashboardId },
-          data: { lastActive: new Date() }
+        where: { id: dashboardId },
+        data: { lastActive: new Date() }
       });
 
       const payload = {
@@ -143,85 +79,55 @@ async function dashboardChatsRoutes(fastify, opts) {
   }, async (req, reply) => {
     try {
       const { dashboardId, chatId } = req.params;
-  
+
       if (req.user.id !== dashboardId) {
         return reply.code(403).send({ error: "No autorizado" });
       }
-  
+
       let creator = await prisma.creator.findUnique({ where: { id: dashboardId } });
       if (!creator) {
         return reply.code(404).send({ error: "Creador no encontrado" });
       }
-  
-      creator = await livesUtils.refillLivesIfNeeded(creator); 
-  
+
+      creator = await livesUtils.refillLivesIfNeeded(creator);
+
       let chat = await prisma.chat.findFirst({
         where: { id: chatId, creatorId: dashboardId },
         include: {
           messages: { orderBy: { createdAt: "asc" } },
         },
       });
-  
+
       if (!chat) {
         return reply.code(404).send({ error: "Chat no encontrado" });
       }
-        
+
       // Resetear anonReplied a false al ver el chat
       if (chat.anonReplied) {
         await prisma.chat.update({
-            where: { id: chatId },
-            data: { anonReplied: false },
+          where: { id: chatId },
+          data: { anonReplied: false },
         });
         chat = await prisma.chat.findFirst({
-            where: { id: chatId, creatorId: dashboardId },
-            include: {
-              messages: { orderBy: { createdAt: "asc" } },
-            },
+          where: { id: chatId, creatorId: dashboardId },
+          include: {
+            messages: { orderBy: { createdAt: "asc" } },
+          },
         });
       }
 
-      // Lógica de tiempo de expiración (24 Horas)
-      const lastAnonTip = await prisma.chatMessage.findFirst({
-        where: { chatId: chatId, from: 'anon', tipStatus: 'PENDING' },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, createdAt: true, tipAmount: true }
-      });
-      
       let tipExpiresInMinutes = null;
-      const EXPIRATION_HOURS = 24; // 24 horas para responder
-      
-      if (lastAnonTip && lastAnonTip.tipAmount > 0) {
-          const now = new Date();
-          const tipCreatedAt = new Date(lastAnonTip.createdAt);
-          const expirationTime = EXPIRATION_HOURS * 60 * 60 * 1000;
-          const timeElapsed = now.getTime() - tipCreatedAt.getTime();
-          const timeLeftMs = expirationTime - timeElapsed;
 
-          if (timeLeftMs > 0) {
-              tipExpiresInMinutes = Math.ceil(timeLeftMs / (1000 * 60));
-          } else {
-              // Si ya expiró, marcamos como NOT_FULFILLED
-              // (La ruta de admin.js también hace esto, pero es bueno tener redundancia)
-              await prisma.chatMessage.update({
-                  where: { id: lastAnonTip.id },
-                  data: { tipStatus: 'NOT_FULFILLED' }
-              });
-              tipExpiresInMinutes = 0; 
-          }
-      }
-  
       reply.send({
         id: chat.id,
         anonToken: chat.anonToken,
-        anonAlias: chat.anonAlias, 
+        anonAlias: chat.anonAlias,
         messages: chat.messages.map((m) => ({
           id: m.id,
           from: m.from,
           alias: m.alias || chat.anonAlias || "Anónimo",
           content: m.content,
           createdAt: m.createdAt,
-          tipAmount: m.tipAmount,
-          tipStatus: m.tipStatus,
         })),
         livesLeft: creator.lives,
         // ✅ Usamos la función a través del objeto importado
@@ -260,7 +166,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       if (!chat.isOpened) {
         // ✅ Usamos la función a través del objeto importado
         updatedCreator = await livesUtils.consumeLife(dashboardId);
-        
+
         await prisma.chat.update({
           where: { id: chatId },
           data: { isOpened: true },
@@ -268,7 +174,7 @@ async function dashboardChatsRoutes(fastify, opts) {
       } else {
         updatedCreator = await prisma.creator.findUnique({ where: { id: dashboardId } });
         // ✅ Usamos la función a través del objeto importado
-        updatedCreator = await livesUtils.refillLivesIfNeeded(updatedCreator); 
+        updatedCreator = await livesUtils.refillLivesIfNeeded(updatedCreator);
       }
 
       reply.send({
