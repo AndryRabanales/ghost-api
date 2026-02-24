@@ -11,7 +11,7 @@ async function publicRoutes(fastify, opts) {
   fastify.post("/public/:publicId/messages", async (req, reply) => {
     try {
       const { publicId } = req.params;
-      const { content, alias, fanEmail } = req.body;
+      const { content, alias } = req.body;
 
       // 1. Validar contenido
       if (!content || content.trim().length < 3) {
@@ -20,7 +20,6 @@ async function publicRoutes(fastify, opts) {
 
       const cleanContent = sanitize(content);
       const cleanAlias = sanitize(alias) || "Anónimo";
-      const cleanEmail = sanitize(fanEmail) || null;
 
       // 2. Moderación de alias (Eliminada)
 
@@ -46,7 +45,6 @@ async function publicRoutes(fastify, opts) {
           id: crypto.randomUUID(),
           anonToken,
           anonAlias: cleanAlias,
-          anonEmail: cleanEmail,
           creator: { connect: { id: creator.id } },
           messages: {
             create: {
