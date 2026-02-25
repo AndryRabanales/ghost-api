@@ -39,12 +39,14 @@ async function publicRoutes(fastify, opts) {
 
       // 5. Crear o reutilizar el chat y guardar el mensaje
       const anonToken = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
 
       const chat = await prisma.chat.create({
         data: {
           id: crypto.randomUUID(),
           anonToken,
           anonAlias: cleanAlias,
+          expiresAt: expiresAt,
           creator: { connect: { id: creator.id } },
           messages: {
             create: {

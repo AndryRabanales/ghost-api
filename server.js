@@ -15,6 +15,7 @@ const dashboardChats = require("./routes/dashboardChats");
 
 const adminAuthPlugin = require("./plugins/adminAuth");
 const adminRoutes = require("./routes/admin");
+const cronPlugin = require("./plugins/cron");
 
 const fastify = Fastify({
   logger: true,
@@ -64,6 +65,7 @@ fastify.register(authPlugin);
 fastify.register(websocket);
 fastify.register(websocketPlugin);
 fastify.register(adminAuthPlugin);
+fastify.register(cronPlugin);
 
 // --- REGISTRAR TODAS LAS RUTAS ---
 fastify.register(authRoutes);

@@ -78,6 +78,7 @@ async function chatsRoutes(fastify, opts) {
           creatorId: creator.id,
           anonToken,
           anonAlias: cleanAlias,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000)
         },
       });
       await prisma.chatMessage.create({
@@ -162,12 +163,38 @@ async function chatsRoutes(fastify, opts) {
           createdAt: m.createdAt,
         })),
         creatorName: chat.creator?.name || null,
-        // --- 👇 AÑADIDO: Devolver la última actividad del creador ---
-        creatorLastActive: chat.creator?.updatedAt || null
+        creatorLastActive: chat.creator?.updatedAt || null,
+        expiresAt: chat.expiresAt || null
       });
     } catch (err) {
       fastify.log.error(err);
       reply.code(500).send({ error: "Error obteniendo mensajes del chat" });
+    }
+  });
+
+  /**
+   * Eliminar (Abandonar) un chat de inmediato
+   */
+  fastify.delete("/chats/:anonToken/:chatId", async (req, reply) => {
+    try {
+      const { anonToken, chatId } = req.params;
+
+      const chat = await prisma.chat.findUnique({
+        where: { id: chatId, anonToken }
+      });
+
+      if (!chat) {
+        return reply.code(404).send({ error: "Chat no encontrado o no autorizado" });
+      }
+
+      await prisma.chat.delete({
+        where: { id: chatId }
+      });
+
+      reply.code(200).send({ success: true, message: "Chat eliminado y abandonado con éxito." });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: "Error al eliminar el chat." });
     }
   });
 }

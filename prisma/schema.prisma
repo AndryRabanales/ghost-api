@@ -72,6 +72,7 @@ model Chat {
   creatorId   String
   anonToken   String
   createdAt   DateTime      @default(now())
+  expiresAt   DateTime?
   anonAlias   String?
   isOpened    Boolean       @default(false)
   anonReplied Boolean       @default(false)
@@ -87,7 +88,7 @@ model ChatMessage {
   createdAt          DateTime @default(now())
   seen               Boolean  @default(false)
   alias              String?
-  chat               Chat     @relation(fields: [chatId], references: [id])
+  chat               Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 }
 
 /// ======================
