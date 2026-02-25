@@ -80,6 +80,28 @@ async function authRoutes(fastify, opts) {
     const token = fastify.generateToken(creator);
     reply.send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
   });
+
+  // --- Endpoint para REFRESCAR TOKEN ---
+  fastify.post("/refresh-token", async (req, reply) => {
+    const { publicId } = req.body;
+
+    if (!publicId) {
+      return reply.code(400).send({ error: "publicId requerido" });
+    }
+
+    try {
+      const creator = await prisma.creator.findUnique({ where: { publicId } });
+      if (!creator) {
+        return reply.code(404).send({ error: "Usuario no encontrado" });
+      }
+
+      const token = fastify.generateToken(creator);
+      reply.send({ token });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: "Error renovando token" });
+    }
+  });
 }
 
 module.exports = authRoutes;
