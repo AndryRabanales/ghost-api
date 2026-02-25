@@ -29,7 +29,7 @@ async function chatsRoutes(fastify, opts) {
       // Actualiza anonReplied a true
       await prisma.chat.update({
         where: { id: chatId },
-        data: { anonReplied: true, updatedAt: new Date() }
+        data: { anonReplied: true }
       });
 
       const msg = await prisma.chatMessage.create({
