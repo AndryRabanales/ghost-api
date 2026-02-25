@@ -55,9 +55,18 @@ async function publicRoutes(fastify, opts) {
           }
         }
       });
+      // Obtener el mensaje recién creado para enviarlo
+      const initialMessage = await prisma.chatMessage.findFirst({
+        where: { chatId: chat.id, from: 'anon' },
+        orderBy: { createdAt: 'asc' }
+      });
 
-
-
+      if (initialMessage) {
+        fastify.broadcastToDashboard(creator.id, {
+          type: "message",
+          ...initialMessage
+        });
+      }
       fastify.log.info(`Mensaje gratuito enviado al creador ${publicId} (chat: ${chat.id})`);
       reply.code(201).send({ success: true, chatId: chat.id, anonToken });
 
