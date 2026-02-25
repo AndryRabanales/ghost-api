@@ -163,6 +163,7 @@ async function chatsRoutes(fastify, opts) {
           createdAt: m.createdAt,
         })),
         creatorName: chat.creator?.name || null,
+        creatorPublicId: chat.creator?.publicId || null,
         creatorLastActive: chat.creator?.updatedAt || null,
         expiresAt: chat.expiresAt || null
       });
@@ -189,6 +190,11 @@ async function chatsRoutes(fastify, opts) {
 
       await prisma.chat.delete({
         where: { id: chatId }
+      });
+
+      fastify.broadcastToDashboard(chat.creatorId, {
+        type: 'CHAT_ABANDONED',
+        chatId: chatId
       });
 
       reply.code(200).send({ success: true, message: "Chat eliminado y abandonado con éxito." });
