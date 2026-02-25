@@ -131,6 +131,7 @@ async function dashboardChatsRoutes(fastify, opts) {
         // ✅ Usamos la función a través del objeto importado
         minutesToNextLife: livesUtils.minutesToNextLife(creator),
         tipExpiresInMinutes: tipExpiresInMinutes,
+        expiresAt: chat.expiresAt || null,
       });
     } catch (err) {
       fastify.log.error("❌ Error en GET /dashboard/:dashboardId/chats/:chatId:", err);
