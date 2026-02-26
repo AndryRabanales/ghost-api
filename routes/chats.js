@@ -78,7 +78,7 @@ async function chatsRoutes(fastify, opts) {
           creatorId: creator.id,
           anonToken,
           anonAlias: cleanAlias,
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
         },
       });
       await prisma.chatMessage.create({
