@@ -38,6 +38,7 @@ async function chatsRoutes(fastify, opts) {
           from: "anon",
           content: cleanContent,
           alias: cleanAlias,
+          imageUrl: req.body.imageUrl || null
         }
       });
 
@@ -87,6 +88,7 @@ async function chatsRoutes(fastify, opts) {
           from: "anon",
           content: cleanContent,
           alias: cleanAlias,
+          imageUrl: req.body.imageUrl || null
         },
       });
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
@@ -127,6 +129,7 @@ async function chatsRoutes(fastify, opts) {
           alias: last.alias || "Anónimo",
           seen: last.seen,
           createdAt: last.createdAt,
+          imageUrl: last.imageUrl || null
         } : null,
         anonAlias: chat.anonAlias || last?.alias || "Anónimo",
       });
@@ -161,6 +164,7 @@ async function chatsRoutes(fastify, opts) {
           alias: m.alias || chat.anonAlias || "Anónimo",
           seen: m.seen,
           createdAt: m.createdAt,
+          imageUrl: m.imageUrl || null
         })),
         creatorName: chat.creator?.name || null,
         creatorPublicId: chat.creator?.publicId || null,

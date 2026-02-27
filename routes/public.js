@@ -11,7 +11,7 @@ async function publicRoutes(fastify, opts) {
   fastify.post("/public/:publicId/messages", async (req, reply) => {
     try {
       const { publicId } = req.params;
-      const { content, alias } = req.body;
+      const { content, alias, imageUrl } = req.body;
 
       // 1. Validar contenido
       if (!content || content.trim().length < 3) {
@@ -53,6 +53,7 @@ async function publicRoutes(fastify, opts) {
               id: crypto.randomUUID(),
               content: cleanContent,
               from: "anon",
+              imageUrl: imageUrl || null
             }
           }
         }
