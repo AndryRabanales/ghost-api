@@ -89,6 +89,7 @@ model ChatMessage {
   seen               Boolean  @default(false)
   alias              String?
   imageUrl           String?
+  mediaType          String?
   chat               Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 }
 

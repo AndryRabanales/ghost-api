@@ -126,7 +126,8 @@ async function dashboardChatsRoutes(fastify, opts) {
           alias: m.alias || chat.anonAlias || "Anónimo",
           content: m.content,
           createdAt: m.createdAt,
-          imageUrl: m.imageUrl || null
+          imageUrl: m.imageUrl || null,
+          mediaType: m.mediaType || null
         })),
         livesLeft: creator.lives,
         // ✅ Usamos la función a través del objeto importado
