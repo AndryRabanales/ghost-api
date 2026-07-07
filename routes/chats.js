@@ -14,8 +14,8 @@ async function chatsRoutes(fastify, opts) {
       const cleanContent = sanitize(req.body.content);
       const cleanAlias = sanitize(req.body.alias) || "Anónimo";
 
-      if (!cleanContent || cleanContent.trim().length < 1) {
-        return reply.code(400).send({ error: "El mensaje está vacío." });
+      if ((!cleanContent || cleanContent.trim().length < 1) && !req.body.imageUrl) {
+        return reply.code(400).send({ error: "El mensaje no puede estar vacío si no hay archivo adjunto." });
       }
 
       const chat = await prisma.chat.findUnique({
@@ -66,10 +66,10 @@ async function chatsRoutes(fastify, opts) {
       const { publicId } = req.body;
       const cleanContent = sanitize(req.body.content);
       const cleanAlias = sanitize(req.body.alias) || "Anónimo";
-      if (!publicId || !cleanContent || cleanContent.trim() === "") {
+      if (!publicId || ((!cleanContent || cleanContent.trim() === "") && !req.body.imageUrl)) {
         return reply
           .code(400)
-          .send({ error: "Faltan campos obligatorios (publicId, content)" });
+          .send({ error: "Faltan campos obligatorios o el mensaje está vacío." });
       }
       const creator = await prisma.creator.findUnique({ where: { publicId } });
       if (!creator)

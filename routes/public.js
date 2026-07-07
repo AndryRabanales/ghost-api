@@ -14,8 +14,8 @@ async function publicRoutes(fastify, opts) {
       const { content, alias, imageUrl, mediaType } = req.body;
 
       // 1. Validar contenido
-      if (!content || content.trim().length < 3) {
-        return reply.code(400).send({ error: "El mensaje es muy corto." });
+      if ((!content || content.trim().length < 1) && !imageUrl) {
+        return reply.code(400).send({ error: "El mensaje no puede estar vacío si no hay archivo adjunto." });
       }
 
       const cleanContent = sanitize(content);
