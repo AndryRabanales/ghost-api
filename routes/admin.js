@@ -1,8 +1,6 @@
 // routes/admin.js
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
-// --- 👇 1. IMPORTAR STRIPE 👇 ---
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 async function adminRoutes(fastify, opts) {
 
