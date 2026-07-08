@@ -57,7 +57,7 @@ fastify.register(cors, {
     'https://www.ghostmsg.space',
     'https://ghost-web-production.up.railway.app'
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 });
 
 // --- PLUGINS (Sin cambios) ---
