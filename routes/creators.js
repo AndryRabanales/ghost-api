@@ -78,6 +78,8 @@ async function creatorsRoutes(fastify, opts) {
         name: updated.name,
         email: updated.email,
         publicId: updated.publicId,
+        aliasPrompt: updated.aliasPrompt,
+        messagePrompt: updated.messagePrompt,
         lives: updated.lives,
         maxLives: updated.maxLives,
         minutesToNextLife: livesUtils.minutesToNextLife(updated),
@@ -89,7 +91,49 @@ async function creatorsRoutes(fastify, opts) {
     }
   });
 
-  // Rutas de Stripe eliminadas
+  // --- RUTA PATCH /creators/me (Editar perfil) ---
+  fastify.patch("/creators/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    try {
+      const creator = await prisma.creator.findUnique({ where: { id: req.user.id } });
+      if (!creator) return reply.code(404).send({ error: "Creator no encontrado" });
+
+      const data = {};
+
+      if (req.body.name !== undefined) {
+        const name = sanitize(req.body.name);
+        if (!name || name.trim().length < 1) {
+          return reply.code(400).send({ error: "El nombre no puede estar vacío." });
+        }
+        data.name = name.trim().slice(0, 40);
+      }
+
+      if (req.body.aliasPrompt !== undefined) {
+        const v = sanitize(req.body.aliasPrompt);
+        data.aliasPrompt = v ? v.trim().slice(0, 80) : null;
+      }
+
+      if (req.body.messagePrompt !== undefined) {
+        const v = sanitize(req.body.messagePrompt);
+        data.messagePrompt = v ? v.trim().slice(0, 120) : null;
+      }
+
+      const updated = await prisma.creator.update({
+        where: { id: creator.id },
+        data,
+      });
+
+      reply.send({
+        id: updated.id,
+        name: updated.name,
+        publicId: updated.publicId,
+        aliasPrompt: updated.aliasPrompt,
+        messagePrompt: updated.messagePrompt,
+      });
+    } catch (err) {
+      fastify.log.error("❌ Error en PATCH /creators/me:", err);
+      reply.code(500).send({ error: "Error actualizando el perfil" });
+    }
+  });
 
 
 

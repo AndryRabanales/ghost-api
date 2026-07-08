@@ -93,12 +93,14 @@ async function publicRoutes(fastify, opts) {
       let creator = await prisma.creator.findUnique({
         where: { publicId },
         select: {
-          id: true, name: true
+          id: true, name: true, aliasPrompt: true, messagePrompt: true
         }
       });
       if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
       reply.send({
         creatorName: creator.name,
+        aliasPrompt: creator.aliasPrompt || null,
+        messagePrompt: creator.messagePrompt || null,
         premiumContract: null,
         topicPreference: null,
         escasezData: { dailyMsgLimit: 1000, msgCountToday: 0 },
