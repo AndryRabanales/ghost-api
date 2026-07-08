@@ -4,8 +4,52 @@ const prisma = new PrismaClient(); // ✨ CORRECCIÓN AQUÍ
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require("google-auth-library");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 async function authRoutes(fastify, opts) {
+  // --- Endpoint para INICIAR SESIÓN / REGISTRARSE con Google ---
+  fastify.post("/auth/google", async (req, reply) => {
+    const { credential } = req.body;
+
+    if (!credential) {
+      return reply.code(400).send({ error: "Falta el token de Google" });
+    }
+
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+
+      if (!payload.email_verified) {
+        return reply.code(403).send({ error: "El email de Google no está verificado" });
+      }
+
+      let creator = await prisma.creator.findUnique({ where: { email: payload.email } });
+
+      if (!creator) {
+        creator = await prisma.creator.create({
+          data: {
+            id: crypto.randomUUID(),
+            publicId: crypto.randomUUID(),
+            name: payload.name || payload.email.split("@")[0],
+            email: payload.email,
+            password: null,
+          },
+        });
+      }
+
+      const token = fastify.generateToken(creator);
+      reply.send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(401).send({ error: "Token de Google inválido" });
+    }
+  });
+
   // --- Endpoint para REGISTRAR un nuevo usuario ---
   fastify.post("/auth/register", async (req, reply) => {
     // ... (el resto del código de registro se queda igual)
