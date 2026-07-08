@@ -68,16 +68,27 @@ model Response {
 ///     CHATS BIDIRECCIONALES
 ///     ======================
 model Chat {
-  id          String        @id @default(uuid())
-  creatorId   String
-  anonToken   String
-  createdAt   DateTime      @default(now())
-  expiresAt   DateTime?
-  anonAlias   String?
-  isOpened    Boolean       @default(false)
-  anonReplied Boolean       @default(false)
-  creator     Creator       @relation(fields: [creatorId], references: [id])
-  messages    ChatMessage[]
+  id            String            @id @default(uuid())
+  creatorId     String
+  anonToken     String
+  createdAt     DateTime          @default(now())
+  expiresAt     DateTime?
+  anonAlias     String?
+  isOpened      Boolean           @default(false)
+  anonReplied   Boolean           @default(false)
+  creator       Creator           @relation(fields: [creatorId], references: [id])
+  messages      ChatMessage[]
+  subscriptions PushSubscription[]
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  chatId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 }
 
 model ChatMessage {

@@ -3,8 +3,49 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 const crypto = require("crypto");
 const { sanitize } = require("../utils/sanitize");
+const { publicKey: vapidPublicKey } = require("../utils/push");
 
 async function chatsRoutes(fastify, opts) {
+  /**
+   * Llave pública VAPID (para que el navegador se suscriba a push)
+   */
+  fastify.get("/push/vapid-public-key", async (req, reply) => {
+    if (!vapidPublicKey) return reply.code(503).send({ error: "Push no configurado" });
+    reply.send({ publicKey: vapidPublicKey });
+  });
+
+  /**
+   * Guardar una suscripción push para un chat anónimo
+   */
+  fastify.post("/:anonToken/:chatId/push-subscribe", async (req, reply) => {
+    try {
+      const { anonToken, chatId } = req.params;
+      const { subscription } = req.body;
+
+      if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+        return reply.code(400).send({ error: "Suscripción inválida" });
+      }
+
+      const chat = await prisma.chat.findUnique({ where: { id: chatId, anonToken } });
+      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+      await prisma.pushSubscription.upsert({
+        where: { endpoint: subscription.endpoint },
+        update: { chatId: chat.id, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth },
+        create: {
+          chatId: chat.id,
+          endpoint: subscription.endpoint,
+          p256dh: subscription.keys.p256dh,
+          auth: subscription.keys.auth,
+        },
+      });
+
+      reply.code(201).send({ success: true });
+    } catch (err) {
+      fastify.log.error(err);
+      reply.code(500).send({ error: "Error guardando la suscripción" });
+    }
+  });
 
   // ... (ruta POST /chats/:anonToken/:chatId/messages sin cambios) ...
   fastify.post("/:anonToken/:chatId/messages", async (req, reply) => {

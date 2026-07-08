@@ -6,6 +6,7 @@ const prisma = new PrismaClient();
 const livesUtils = require("../utils/lives");
 
 const { sanitize } = require("../utils/sanitize");
+const { sendPushToChat } = require("../utils/push");
 // Importación de IA eliminada
 
 async function dashboardChatsRoutes(fastify, opts) {
@@ -61,6 +62,12 @@ async function dashboardChatsRoutes(fastify, opts) {
       };
       fastify.broadcastToChat(chat.id, payload);
       fastify.broadcastToDashboard(chat.creatorId, payload);
+
+      sendPushToChat(prisma, chat.id, {
+        title: `${req.user.name || "Alguien"} te respondió`,
+        body: cleanContent.slice(0, 120),
+        url: `/chats/${chat.anonToken}/${chat.id}`,
+      }).catch((err) => fastify.log.error(err, "Error enviando push"));
 
       reply.code(201).send(msg);
     } catch (err) {
