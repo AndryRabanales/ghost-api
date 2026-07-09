@@ -187,6 +187,50 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
+
+  // --- RUTA GET /dashboard/:id/collage (primer mensaje anónimo de cada chat) ---
+  fastify.get(
+    "/dashboard/:dashboardId/collage",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { dashboardId } = req.params;
+        if (req.user.id !== dashboardId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+
+        const chats = await prisma.chat.findMany({
+          where: { creatorId: dashboardId },
+          include: {
+            messages: {
+              where: { from: "anon" },
+              orderBy: { createdAt: "asc" },
+              take: 1,
+            },
+          },
+        });
+
+        const notes = chats
+          .map((chat) => {
+            const m = chat.messages[0];
+            if (!m || !m.content || !m.content.trim()) return null;
+            return {
+              id: m.id,
+              content: m.content,
+              alias: m.alias || chat.anonAlias || "Anónimo",
+              createdAt: m.createdAt,
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        reply.send(notes);
+      } catch (err) {
+        fastify.log.error("❌ Error en GET collage:", err);
+        reply.code(500).send({ error: "Error obteniendo el collage" });
+      }
+    }
+  );
 }
 
 module.exports = creatorsRoutes;
