@@ -17,10 +17,11 @@ async function authPlugin(fastify, opts) {
   });
 
   fastify.decorate('generateToken', function (creator) {
+    // Sin expiración: la sesión del creador nunca caduca (solo se cierra
+    // manualmente con "Cerrar sesión"). No pasamos expiresIn a propósito.
     return jwt.sign(
       { id: creator.id, publicId: creator.publicId, name: creator.name },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' } // Optional: token expires in 1 hour
+      process.env.JWT_SECRET
     );
   });
 }
