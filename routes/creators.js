@@ -277,6 +277,42 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
+
+  // --- PUT /dashboard/:id/collage/order (guarda el orden del tendedero) ---
+  // Recibe { ids: [...] } en el orden deseado (derivado del collage) y guarda
+  // collageOrder = índice para cada nota del creador.
+  fastify.put(
+    "/dashboard/:dashboardId/collage/order",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { dashboardId } = req.params;
+        if (req.user.id !== dashboardId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+
+        // Solo mensajes que pertenecen a chats de este creador.
+        const owned = await prisma.chatMessage.findMany({
+          where: { id: { in: ids }, chat: { creatorId: dashboardId } },
+          select: { id: true },
+        });
+        const ownedSet = new Set(owned.map((o) => o.id));
+
+        const ops = ids
+          .filter((id) => ownedSet.has(id))
+          .map((id, idx) =>
+            prisma.chatMessage.update({ where: { id }, data: { collageOrder: idx } })
+          );
+        await prisma.$transaction(ops);
+
+        reply.send({ success: true, count: ops.length });
+      } catch (err) {
+        fastify.log.error("❌ Error en PUT collage/order:", err);
+        reply.code(500).send({ error: "Error guardando el orden" });
+      }
+    }
+  );
 }
 
 module.exports = creatorsRoutes;

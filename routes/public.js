@@ -148,11 +148,20 @@ async function publicRoutes(fastify, opts) {
             content: m.content,
             alias: m.alias || chat.anonAlias || "Anónimo",
             createdAt: m.createdAt,
+            order: m.collageOrder,
           };
         })
         .filter(Boolean)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        .slice(0, 40);
+        // Respeta el orden del collage (collageOrder); las que no tienen orden
+        // van al final por fecha (más recientes primero).
+        .sort((a, b) => {
+          if (a.order != null && b.order != null) return a.order - b.order;
+          if (a.order != null) return -1;
+          if (b.order != null) return 1;
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        })
+        .slice(0, 40)
+        .map(({ order, ...rest }) => rest);
 
       reply.send(notes);
     } catch (err) {

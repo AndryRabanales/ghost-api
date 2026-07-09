@@ -102,6 +102,7 @@ model ChatMessage {
   createdAt          DateTime @default(now())
   seen               Boolean  @default(false)
   hidden             Boolean  @default(false)
+  collageOrder       Int?
   alias              String?
   imageUrl           String?
   mediaType          String?
