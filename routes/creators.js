@@ -232,6 +232,7 @@ async function creatorsRoutes(fastify, opts) {
               content: m.content,
               alias: m.alias || chat.anonAlias || "Anónimo",
               createdAt: m.createdAt,
+              hidden: m.hidden || false,
             };
           })
           .filter(Boolean)
@@ -241,6 +242,38 @@ async function creatorsRoutes(fastify, opts) {
       } catch (err) {
         fastify.log.error("❌ Error en GET collage:", err);
         reply.code(500).send({ error: "Error obteniendo el collage" });
+      }
+    }
+  );
+
+  // --- PATCH /dashboard/:id/collage/:messageId (archivar / restaurar nota) ---
+  fastify.patch(
+    "/dashboard/:dashboardId/collage/:messageId",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { dashboardId, messageId } = req.params;
+        if (req.user.id !== dashboardId) {
+          return reply.code(403).send({ error: "No autorizado" });
+        }
+        const hidden = !!req.body?.hidden;
+
+        // El mensaje debe pertenecer a un chat de este creador.
+        const msg = await prisma.chatMessage.findFirst({
+          where: { id: messageId, chat: { creatorId: dashboardId } },
+          select: { id: true },
+        });
+        if (!msg) return reply.code(404).send({ error: "Nota no encontrada" });
+
+        await prisma.chatMessage.update({
+          where: { id: messageId },
+          data: { hidden },
+        });
+
+        reply.send({ success: true, id: messageId, hidden });
+      } catch (err) {
+        fastify.log.error("❌ Error en PATCH collage:", err);
+        reply.code(500).send({ error: "Error actualizando la nota" });
       }
     }
   );

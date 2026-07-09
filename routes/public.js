@@ -113,6 +113,54 @@ async function publicRoutes(fastify, opts) {
     }
   });
 
+  // --- NOTITAS PÚBLICAS (tendedero) : primer mensaje anónimo de cada chat ---
+  // Solo texto + alias, sin foto ni datos del chat. Para mostrarlas como
+  // "notas de Instagram" debajo del formulario del enlace público.
+  fastify.get("/public/:publicId/notes", async (req, reply) => {
+    try {
+      const { publicId } = req.params;
+      const creator = await prisma.creator.findUnique({
+        where: { publicId },
+        select: { id: true },
+      });
+      if (!creator) return reply.code(404).send({ error: "Creador no encontrado" });
+
+      const chats = await prisma.chat.findMany({
+        where: { creatorId: creator.id },
+        include: {
+          messages: {
+            where: { from: "anon" },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 60,
+      });
+
+      const notes = chats
+        .map((chat) => {
+          const m = chat.messages[0];
+          if (!m || !m.content || !m.content.trim()) return null;
+          if (m.hidden) return null; // el creador la archivó: no se muestra
+          return {
+            id: m.id,
+            content: m.content,
+            alias: m.alias || chat.anonAlias || "Anónimo",
+            createdAt: m.createdAt,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 40);
+
+      reply.send(notes);
+    } catch (err) {
+      fastify.log.error(err, "❌ Error en GET /public/:publicId/notes:");
+      return reply.code(500).send({ error: "Error obteniendo las notitas" });
+    }
+  });
+
   // --- INFO BÁSICA (nombre, último activo) ---
   fastify.get("/public/:publicId/info", async (req, reply) => {
     try {
