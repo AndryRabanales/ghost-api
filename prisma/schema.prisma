@@ -79,6 +79,7 @@ model Chat {
   anonAlias     String?
   isOpened      Boolean           @default(false)
   anonReplied   Boolean           @default(false)
+  creatorArchived Boolean         @default(false)
   creator       Creator           @relation(fields: [creatorId], references: [id])
   messages      ChatMessage[]
   subscriptions PushSubscription[]

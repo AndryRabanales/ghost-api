@@ -161,8 +161,11 @@ async function creatorsRoutes(fastify, opts) {
           return reply.code(403).send({ error: "No autorizado" });
         }
 
+        // ?archived=1 lista los archivados; por defecto solo los activos.
+        const wantArchived = req.query?.archived === "1" || req.query?.archived === "true";
+
         const chats = await prisma.chat.findMany({
-          where: { creatorId: dashboardId },
+          where: { creatorId: dashboardId, creatorArchived: wantArchived },
           include: {
             messages: {
               orderBy: { createdAt: "desc" },

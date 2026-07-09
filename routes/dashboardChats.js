@@ -196,6 +196,65 @@ async function dashboardChatsRoutes(fastify, opts) {
       reply.code(500).send({ error: "Error abriendo chat" });
     }
   });
+
+  /**
+   * Archivar / restaurar un chat (el creador lo oculta de su bandeja)
+   */
+  fastify.patch("/dashboard/:dashboardId/chats/:chatId/archive", {
+    preHandler: [fastify.authenticate],
+  }, async (req, reply) => {
+    try {
+      const { dashboardId, chatId } = req.params;
+      if (req.user.id !== dashboardId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
+      const archived = !!req.body?.archived;
+
+      const chat = await prisma.chat.findFirst({
+        where: { id: chatId, creatorId: dashboardId },
+        select: { id: true },
+      });
+      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+      await prisma.chat.update({
+        where: { id: chatId },
+        data: { creatorArchived: archived },
+      });
+
+      reply.send({ success: true, id: chatId, archived });
+    } catch (err) {
+      fastify.log.error("❌ Error en PATCH /dashboard/:dashboardId/chats/:chatId/archive:", err);
+      reply.code(500).send({ error: "Error archivando el chat" });
+    }
+  });
+
+  /**
+   * Borrar un chat (el creador lo abandona: se elimina para ambos)
+   */
+  fastify.delete("/dashboard/:dashboardId/chats/:chatId", {
+    preHandler: [fastify.authenticate],
+  }, async (req, reply) => {
+    try {
+      const { dashboardId, chatId } = req.params;
+      if (req.user.id !== dashboardId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
+
+      const chat = await prisma.chat.findFirst({
+        where: { id: chatId, creatorId: dashboardId },
+        select: { id: true },
+      });
+      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+      // onDelete: Cascade en messages y subscriptions elimina todo lo asociado.
+      await prisma.chat.delete({ where: { id: chatId } });
+
+      reply.send({ success: true, id: chatId });
+    } catch (err) {
+      fastify.log.error("❌ Error en DELETE /dashboard/:dashboardId/chats/:chatId:", err);
+      reply.code(500).send({ error: "Error borrando el chat" });
+    }
+  });
 }
 
 module.exports = dashboardChatsRoutes;
