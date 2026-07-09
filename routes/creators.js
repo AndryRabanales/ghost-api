@@ -80,6 +80,7 @@ async function creatorsRoutes(fastify, opts) {
         publicId: updated.publicId,
         aliasPrompt: updated.aliasPrompt,
         messagePrompt: updated.messagePrompt,
+        avatarUrl: updated.avatarUrl,
         lives: updated.lives,
         maxLives: updated.maxLives,
         minutesToNextLife: livesUtils.minutesToNextLife(updated),
@@ -117,6 +118,17 @@ async function creatorsRoutes(fastify, opts) {
         data.messagePrompt = v ? v.trim().slice(0, 120) : null;
       }
 
+      if (req.body.avatarUrl !== undefined) {
+        const v = req.body.avatarUrl;
+        if (v === null || v === "") {
+          data.avatarUrl = null;
+        } else if (typeof v === "string" && v.startsWith("data:image/") && v.length <= 400000) {
+          data.avatarUrl = v;
+        } else {
+          return reply.code(400).send({ error: "Imagen inválida o demasiado grande." });
+        }
+      }
+
       const updated = await prisma.creator.update({
         where: { id: creator.id },
         data,
@@ -128,6 +140,7 @@ async function creatorsRoutes(fastify, opts) {
         publicId: updated.publicId,
         aliasPrompt: updated.aliasPrompt,
         messagePrompt: updated.messagePrompt,
+        avatarUrl: updated.avatarUrl,
       });
     } catch (err) {
       fastify.log.error("❌ Error en PATCH /creators/me:", err);

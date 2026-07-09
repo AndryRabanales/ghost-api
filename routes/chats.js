@@ -213,6 +213,7 @@ async function chatsRoutes(fastify, opts) {
         })),
         creatorName: chat.creator?.name || null,
         creatorPublicId: chat.creator?.publicId || null,
+        creatorAvatarUrl: chat.creator?.avatarUrl || null,
         creatorLastActive: chat.creator?.updatedAt || null,
         expiresAt: chat.expiresAt || null
       });

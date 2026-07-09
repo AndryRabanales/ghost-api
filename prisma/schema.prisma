@@ -35,6 +35,7 @@ model Creator {
   lastActive             DateTime? @default(now())
   aliasPrompt            String?
   messagePrompt          String?
+  avatarUrl              String?
 
   // --- 👇 CAMPOS DE FUNCIONES PRO / ESCCASEZ (PILAR 2: S1, S3) ---
   // --- Relaciones ---
