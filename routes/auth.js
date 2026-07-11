@@ -17,18 +17,27 @@ async function authRoutes(fastify, opts) {
       return reply.code(400).send({ error: "Falta el token de Google" });
     }
 
+    // Client IDs aceptados: web + app nativa (iOS/Android).
+    // El client_id web es público (va en el frontend); lo dejamos como respaldo
+    // para que el login web NUNCA se rompa aunque falte la variable en el server.
+    const WEB_CLIENT_ID =
+      "139854990044-ihq8knm8q3nk39vc5oebuorikdc01u14.apps.googleusercontent.com";
+    const audience = [
+      process.env.GOOGLE_CLIENT_ID || WEB_CLIENT_ID,
+      process.env.GOOGLE_IOS_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_CLIENT_ID,
+    ].filter(Boolean);
+
     try {
       const ticket = await googleClient.verifyIdToken({
         idToken: credential,
-        // Acepta el client ID web y también los de la app nativa (iOS/Android).
-        audience: [
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_IOS_CLIENT_ID,
-          process.env.GOOGLE_ANDROID_CLIENT_ID,
-        ].filter(Boolean),
+        audience,
       });
       const payload = ticket.getPayload();
 
+      if (!payload?.email) {
+        return reply.code(401).send({ error: "Token de Google inválido" });
+      }
       if (!payload.email_verified) {
         return reply.code(403).send({ error: "El email de Google no está verificado" });
       }
@@ -50,8 +59,18 @@ async function authRoutes(fastify, opts) {
       const token = fastify.generateToken(creator);
       reply.send({ token, publicId: creator.publicId, name: creator.name, dashboardId: creator.id });
     } catch (err) {
-      fastify.log.error(err);
-      reply.code(401).send({ error: "Token de Google inválido" });
+      // Registramos el motivo real para diagnosticar (aud mismatch, expirado, etc.).
+      const raw = String(err?.message || "");
+      fastify.log.error({ msg: "Fallo /auth/google", detail: raw });
+
+      // Mensaje accionable según el tipo de fallo.
+      let error = "Token de Google inválido";
+      if (/audience|recipient|aud/i.test(raw)) {
+        error = "Este dominio no está autorizado en Google. Reintenta o avísanos.";
+      } else if (/expired|Token used too late|iat|exp/i.test(raw)) {
+        error = "La sesión de Google caducó. Toca de nuevo “Continuar con Google”.";
+      }
+      reply.code(401).send({ error, detail: raw.slice(0, 120) });
     }
   });
 
