@@ -65,9 +65,9 @@ async function authRoutes(fastify, opts) {
 
       // Mensaje accionable según el tipo de fallo.
       let error = "Token de Google inválido";
-      if (/audience|recipient|aud/i.test(raw)) {
+      if (/wrong recipient|audience/i.test(raw)) {
         error = "Este dominio no está autorizado en Google. Reintenta o avísanos.";
-      } else if (/expired|Token used too late|iat|exp/i.test(raw)) {
+      } else if (/expired|used too late|used too early|not yet valid/i.test(raw)) {
         error = "La sesión de Google caducó. Toca de nuevo “Continuar con Google”.";
       }
       reply.code(401).send({ error, detail: raw.slice(0, 120) });
