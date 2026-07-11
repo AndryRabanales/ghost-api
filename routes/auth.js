@@ -20,7 +20,12 @@ async function authRoutes(fastify, opts) {
     try {
       const ticket = await googleClient.verifyIdToken({
         idToken: credential,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        // Acepta el client ID web y también los de la app nativa (iOS/Android).
+        audience: [
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_IOS_CLIENT_ID,
+          process.env.GOOGLE_ANDROID_CLIENT_ID,
+        ].filter(Boolean),
       });
       const payload = ticket.getPayload();
 

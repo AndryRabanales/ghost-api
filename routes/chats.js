@@ -4,6 +4,8 @@ const prisma = new PrismaClient();
 const crypto = require("crypto");
 const { sanitize } = require("../utils/sanitize");
 const { publicKey: vapidPublicKey } = require("../utils/push");
+const { sendPushToCreator } = require("../utils/expoPush");
+const { checkContent } = require("../utils/contentFilter");
 
 async function chatsRoutes(fastify, opts) {
   /**
@@ -67,6 +69,17 @@ async function chatsRoutes(fastify, opts) {
         return reply.code(404).send({ error: "Chat no encontrado o no autorizado." });
       }
 
+      // El creador bloqueó a este anónimo: no acepta más mensajes.
+      if (chat.blocked) {
+        return reply.code(403).send({ error: "Este chat ya no acepta mensajes." });
+      }
+
+      // Moderación: rechaza amenazas / acoso grave.
+      const mod = checkContent(cleanContent);
+      if (!mod.ok) {
+        return reply.code(422).send({ error: mod.reason });
+      }
+
       // Actualiza anonReplied a true
       await prisma.chat.update({
         where: { id: chatId },
@@ -92,6 +105,13 @@ async function chatsRoutes(fastify, opts) {
       // Emitimos el mensaje mediante WebSocket al creador y al propio chat
       fastify.broadcastToDashboard(chat.creatorId, payload);
       fastify.broadcastToChat(chat.id, payload);
+
+      // Push a la app nativa del creador (si tiene la app instalada).
+      sendPushToCreator(prisma, chat.creatorId, {
+        title: `${cleanAlias} te respondió 👻`,
+        body: cleanContent,
+        chatId: chat.id,
+      }).catch(() => {});
 
       reply.code(201).send(msg);
 

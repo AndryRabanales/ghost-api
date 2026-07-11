@@ -42,6 +42,31 @@ model Creator {
   chats                  Chat[]
   messages               Message[]
   links                  ProductLink[]
+  pushTokens             CreatorPushToken[]
+}
+
+/// Push tokens de la app nativa (Expo) — un creador puede tener varios dispositivos.
+model CreatorPushToken {
+  id        String   @id @default(uuid())
+  creatorId String
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+  creator   Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId])
+}
+
+/// Reportes de contenido (moderación requerida por App Store / Play Store).
+model Report {
+  id        String   @id @default(uuid())
+  chatId    String
+  messageId String?
+  creatorId String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([creatorId])
 }
 
 /// =UAL=====================
@@ -80,6 +105,7 @@ model Chat {
   isOpened      Boolean           @default(false)
   anonReplied   Boolean           @default(false)
   creatorArchived Boolean         @default(false)
+  blocked       Boolean           @default(false)
   creator       Creator           @relation(fields: [creatorId], references: [id])
   messages      ChatMessage[]
   subscriptions PushSubscription[]

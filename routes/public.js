@@ -4,6 +4,8 @@ const prisma = new PrismaClient();
 const crypto = require("crypto");
 const { sanitize } = require("../utils/sanitize");
 const { checkAndResetLimit } = require('../utils/paymentHelpers');
+const { sendPushToCreator } = require("../utils/expoPush");
+const { checkContent } = require("../utils/contentFilter");
 
 async function publicRoutes(fastify, opts) {
 
@@ -21,7 +23,11 @@ async function publicRoutes(fastify, opts) {
       const cleanContent = sanitize(content);
       const cleanAlias = sanitize(alias) || "Anónimo";
 
-      // 2. Moderación de alias (Eliminada)
+      // 2. Moderación: rechaza amenazas / acoso grave.
+      const mod = checkContent(cleanContent);
+      if (!mod.ok) {
+        return reply.code(422).send({ error: mod.reason });
+      }
 
       // 3. Buscar creador
       let creator = await prisma.creator.findUnique({
@@ -71,6 +77,14 @@ async function publicRoutes(fastify, opts) {
           ...initialMessage
         });
       }
+
+      // Push a la app nativa del creador: nuevo mensaje anónimo.
+      sendPushToCreator(prisma, creator.id, {
+        title: "Nuevo mensaje anónimo 👻",
+        body: cleanContent,
+        chatId: chat.id,
+      }).catch(() => {});
+
       fastify.log.info(`Mensaje gratuito enviado al creador ${publicId} (chat: ${chat.id})`);
       reply.code(201).send({ success: true, chatId: chat.id, anonToken });
 

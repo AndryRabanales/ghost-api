@@ -316,6 +316,48 @@ async function creatorsRoutes(fastify, opts) {
       }
     }
   );
+  // --- POST /creators/me/push-token (registra el dispositivo de la app) ---
+  fastify.post(
+    "/creators/me/push-token",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { token, platform } = req.body || {};
+        if (!token || typeof token !== "string") {
+          return reply.code(400).send({ error: "Falta el push token" });
+        }
+        // upsert: si el token ya existía (reinstalación / otro usuario), se reasigna.
+        await prisma.creatorPushToken.upsert({
+          where: { token },
+          update: { creatorId: req.user.id, platform: platform || null },
+          create: { creatorId: req.user.id, token, platform: platform || null },
+        });
+        reply.send({ success: true });
+      } catch (err) {
+        fastify.log.error("❌ Error en POST push-token:", err);
+        reply.code(500).send({ error: "Error guardando el push token" });
+      }
+    }
+  );
+
+  // --- DELETE /creators/me/push-token (al cerrar sesión en la app) ---
+  fastify.delete(
+    "/creators/me/push-token",
+    { preHandler: [fastify.authenticate] },
+    async (req, reply) => {
+      try {
+        const { token } = req.body || {};
+        if (!token) return reply.code(400).send({ error: "Falta el push token" });
+        await prisma.creatorPushToken.deleteMany({
+          where: { token, creatorId: req.user.id },
+        });
+        reply.send({ success: true });
+      } catch (err) {
+        fastify.log.error("❌ Error en DELETE push-token:", err);
+        reply.code(500).send({ error: "Error eliminando el push token" });
+      }
+    }
+  );
 }
 
 module.exports = creatorsRoutes;

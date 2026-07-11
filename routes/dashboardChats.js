@@ -229,6 +229,64 @@ async function dashboardChatsRoutes(fastify, opts) {
   });
 
   /**
+   * Reportar un mensaje / chat (moderación requerida por las tiendas)
+   */
+  fastify.post("/dashboard/:dashboardId/chats/:chatId/report", {
+    preHandler: [fastify.authenticate],
+  }, async (req, reply) => {
+    try {
+      const { dashboardId, chatId } = req.params;
+      if (req.user.id !== dashboardId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
+      const chat = await prisma.chat.findFirst({
+        where: { id: chatId, creatorId: dashboardId },
+        select: { id: true },
+      });
+      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+      await prisma.report.create({
+        data: {
+          chatId,
+          messageId: req.body?.messageId || null,
+          creatorId: dashboardId,
+          reason: (req.body?.reason || "").slice(0, 300) || null,
+        },
+      });
+      reply.code(201).send({ success: true });
+    } catch (err) {
+      fastify.log.error("❌ Error en POST report:", err);
+      reply.code(500).send({ error: "Error enviando el reporte" });
+    }
+  });
+
+  /**
+   * Bloquear / desbloquear al anónimo de un chat (deja de aceptar mensajes)
+   */
+  fastify.patch("/dashboard/:dashboardId/chats/:chatId/block", {
+    preHandler: [fastify.authenticate],
+  }, async (req, reply) => {
+    try {
+      const { dashboardId, chatId } = req.params;
+      if (req.user.id !== dashboardId) {
+        return reply.code(403).send({ error: "No autorizado" });
+      }
+      const blocked = !!req.body?.blocked;
+      const chat = await prisma.chat.findFirst({
+        where: { id: chatId, creatorId: dashboardId },
+        select: { id: true },
+      });
+      if (!chat) return reply.code(404).send({ error: "Chat no encontrado" });
+
+      await prisma.chat.update({ where: { id: chatId }, data: { blocked } });
+      reply.send({ success: true, id: chatId, blocked });
+    } catch (err) {
+      fastify.log.error("❌ Error en PATCH block:", err);
+      reply.code(500).send({ error: "Error bloqueando el chat" });
+    }
+  });
+
+  /**
    * Borrar un chat (el creador lo abandona: se elimina para ambos)
    */
   fastify.delete("/dashboard/:dashboardId/chats/:chatId", {
