@@ -12,6 +12,7 @@ const chatsRoutes = require("./routes/chats");
 const messagesRoutes = require("./routes/messages");
 const publicRoutes = require("./routes/public");
 const dashboardChats = require("./routes/dashboardChats");
+const accountDeletionRoutes = require("./routes/accountDeletion");
 
 const adminAuthPlugin = require("./plugins/adminAuth");
 const adminRoutes = require("./routes/admin");
@@ -74,6 +75,7 @@ fastify.register(chatsRoutes);
 fastify.register(messagesRoutes);
 fastify.register(publicRoutes);
 fastify.register(dashboardChats);
+fastify.register(accountDeletionRoutes);
 fastify.register(adminRoutes);
 // --- FIN REGISTRO ---
 
