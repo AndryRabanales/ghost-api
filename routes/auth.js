@@ -22,10 +22,15 @@ async function authRoutes(fastify, opts) {
     // para que el login web NUNCA se rompa aunque falte la variable en el server.
     const WEB_CLIENT_ID =
       "139854990044-ihq8knm8q3nk39vc5oebuorikdc01u14.apps.googleusercontent.com";
+    // Cliente Android nativo (creado en Google Cloud, firma SHA-1 de la app).
+    // Hardcodeado como respaldo para que el login de la app no dependa de una
+    // variable en Railway (el client_id no es secreto, va en el frontend).
+    const ANDROID_CLIENT_ID =
+      "139854990044-gukj9a90rb2mpd745b6ovfiinj8socon.apps.googleusercontent.com";
     const audience = [
       process.env.GOOGLE_CLIENT_ID || WEB_CLIENT_ID,
       process.env.GOOGLE_IOS_CLIENT_ID,
-      process.env.GOOGLE_ANDROID_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_CLIENT_ID || ANDROID_CLIENT_ID,
     ].filter(Boolean);
 
     try {
